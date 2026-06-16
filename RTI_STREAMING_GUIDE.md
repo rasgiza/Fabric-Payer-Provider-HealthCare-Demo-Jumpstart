@@ -181,7 +181,6 @@ Cell 12 deploys all RTI artifacts:
 - Eventhouse + KQL Database (from Git artifacts)
 - Runs `NB_RTI_Setup_Eventhouse` (creates 6 KQL tables + streaming policies + update policies + mirroring policies)
 - Creates and wires the Eventstream topology via API (Processed Ingestion mode)
-- Creates OperationsAgent
 
 ### Step 2: Enable OneLake Availability (Portal — One-Time)
 1. Open **Healthcare_RTI_DB** in the Fabric portal
@@ -263,7 +262,6 @@ the backfill, wait for OneLake to flush, and proceed with scoring.
 | `NB_RTI_Fraud_Detection` | Notebook | Scores claims for fraud risk |
 | `NB_RTI_Care_Gap_Alerts` | Notebook | Checks ADT events against open HEDIS gaps |
 | `NB_RTI_HighCost_Trajectory` | Notebook | Rolling 30d/90d spend + ED visit analysis |
-| `NB_RTI_Operations_Agent` | Notebook | AI agent for RTI operational queries |
 | `PL_Healthcare_RTI` | Pipeline | Orchestrates Simulator → 3 scoring notebooks |
 | `Healthcare RTI Dashboard` | KQL Dashboard | 4-page real-time dashboard (30s auto-refresh) |
 

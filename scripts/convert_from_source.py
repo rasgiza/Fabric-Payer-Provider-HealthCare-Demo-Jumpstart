@@ -3,7 +3,7 @@ Convert Healthcare-Data-Analytics-Repo artifacts to fabric-cicd format
 =====================================================================
 
 This script reads the FabricDemoHLS/ source artifacts and generates a
-workspace/ folder compatible with fabric-cicd / fabric-launcher deployment.
+workspace/ folder compatible with fabric-cicd / fabric-jumpstart deployment.
 
 Run once after cloning Healthcare-Data-Analytics-Repo, then commit the output.
 Re-run whenever source notebooks, pipelines, or other artifacts change.

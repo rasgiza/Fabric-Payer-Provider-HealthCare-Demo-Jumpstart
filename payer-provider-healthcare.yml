@@ -1,15 +1,12 @@
-id: 0  # Maintainers will assign the final numeric id during PR review
+id: 26  # Next available after highest existing id (25); maintainers may reassign during PR review
 logical_id: payer-provider-healthcare
 name: Payer/Provider Healthcare Demo
 description: >-
-  An end-to-end Microsoft Fabric solution for healthcare payers and providers.
-  Combines a medallion lakehouse (Bronze/Silver/Gold), Power BI Direct Lake
-  reporting, an HLS Data Agent grounded on a star-schema semantic model and
-  curated knowledge documents, and an opt-in Real-Time Intelligence stack
-  (Eventhouse + KQL Database + KQL Dashboard) for fraud detection, care-gap
-  closure, and high-cost-member trajectory scoring. One launcher notebook
-  generates synthetic data, runs the ETL pipeline, deploys the report and the
-  agent, and bootstraps the RTI hot path.
+  End-to-end healthcare payer/provider analytics on Fabric. A launcher
+  notebook deploys a medallion lakehouse, ETL pipelines, a Direct Lake
+  Power BI report, an HLS Data Agent grounded on the star-schema model,
+  and an opt-in Real-Time Intelligence stack (Eventhouse + KQL DB) for
+  fraud, care-gap, and high-cost-member scoring on synthetic data.
 date_added: 06/15/2026
 include_in_listing: true
 workload_tags:
@@ -19,8 +16,9 @@ workload_tags:
 - Data Science
 - Real-Time Intelligence
 scenario_tags:
-- Healthcare
-- Industry
+- Batch Processing
+- Modeling
+- Streaming
 type: Demo
 source:
   repo_url: https://github.com/rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart.git

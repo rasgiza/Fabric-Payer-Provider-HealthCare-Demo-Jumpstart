@@ -7,7 +7,7 @@
 # # RTI Post-Deploy Setup
 # 
 # **Prerequisites:** The Eventhouse and KQL Database must already be deployed as Git artifacts
-# (via `fabric-launcher` or `fabric-cicd`). This notebook performs post-deploy wiring:
+# (via `fabric-jumpstart` or `fabric-cicd`). This notebook performs post-deploy wiring:
 # 
 # 1. **Discover** Eventhouse + KQL Database by display name (zero hardcoded IDs)
 # 2. **Execute** schema -- creates 6 tables + streaming ingestion policies + JSON mappings
