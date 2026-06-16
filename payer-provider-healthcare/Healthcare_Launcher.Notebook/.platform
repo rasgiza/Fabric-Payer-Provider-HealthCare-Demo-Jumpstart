@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "Notebook",
+    "displayName": "Healthcare_Launcher"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "f1000001-1111-2222-3333-444444444401"
+  }
+}

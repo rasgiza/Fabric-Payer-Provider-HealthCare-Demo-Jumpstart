@@ -1,8 +1,18 @@
-# Fabric-Payer-Provider-HealthCare-Demo
+# Fabric Payer/Provider Healthcare Demo
 
-One-click deployment of a complete **Healthcare Payer/Provider Analytics** solution into Microsoft Fabric — no Python install, no `.env` files, no manual setup.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Microsoft Fabric](https://img.shields.io/badge/Microsoft-Fabric-blue.svg)](https://learn.microsoft.com/fabric/)
+[![Jumpstart: payer-provider-healthcare](https://img.shields.io/badge/Jumpstart-payer--provider--healthcare-7B68EE.svg)](https://github.com/microsoft/fabric-jumpstart)
 
-> **The story in one line:** *Same Fabric data foundation, two delivery surfaces — **push** to Microsoft Teams via Data Activator the moment a fraud, readmit-risk, or capacity event fires, and **pull** via the Foundry Orchestrator Agent + Power BI / RTI Dashboard when leaders want to investigate. One governance model, real-time and on-demand.*
+> **A Microsoft Fabric Jumpstart** &mdash; one-click deployment of a complete **Healthcare Payer/Provider Analytics** solution. No Python install, no `.env` files, no manual setup.
+
+```python
+# Install via the Fabric Jumpstart catalog (run inside any Fabric notebook)
+import fabric_jumpstart
+fabric_jumpstart.install("payer-provider-healthcare")
+```
+
+> **The story in one line:** *Same Fabric data foundation, two delivery surfaces &mdash; **push** to Microsoft Teams via Data Activator the moment a fraud, readmit-risk, or capacity event fires, and **pull** via the Foundry Orchestrator Agent + Power BI / RTI Dashboard when leaders want to investigate. One governance model, real-time and on-demand.*
 
 > [!IMPORTANT]
 > - All data in this demo is **100% synthetic**. No real patient information (PHI) is used.
@@ -121,7 +131,7 @@ This demo aligns directly with the [Microsoft Healthcare Provider Use Cases](htt
 | **Data foundation** (connect data across systems) | ✅ Medallion (Bronze→Silver→Gold) on Fabric/OneLake unifying EHR, claims, ADT, SDOH, pharmacy; ontology + KB sit on top |
 | **AI-powered experiences** (summarization, knowledge access, automation) | ✅ Foundry Orchestrator agent with KB grounding + citations; sub-agents for clinical / financial / ops questions |
 | **Productivity & collaboration** (care teams, ops, back office) | ✅ Activator → **Teams cards** push the alert into the workflow the user already lives in |
-| **Application platform** (targeted solutions, prototypes) | 🟡 Partial — Healthcare_Launcher.ipynb is itself a one-click reusable solution accelerator; complement with custom apps as needed |
+| **Application platform** (targeted solutions, prototypes) | 🟡 Partial — `Healthcare_Launcher.Notebook` is itself a one-click reusable solution accelerator; complement with custom apps as needed |
 | **Operations & analytics** (throughput, RCM, service line, exec decision support) | ✅ Sweet spot — Power BI exec dashboard, RTI Dashboard, fraud/SIU, contract analytics |
 | **Care team productivity** (workflow automation, knowledge access, secure collab) | ✅ Real-time Teams alerts + grounded agent answers with citations |
 | **Front door & access** (intake, contact center, scheduling) | ❌ Not in scope — complementary to Microsoft Cloud for Healthcare patient experience accelerators |
@@ -134,11 +144,24 @@ This demo aligns directly with the [Microsoft Healthcare Provider Use Cases](htt
 ## Quick Start
 
 1. **Create an empty Fabric workspace** (F64+ capacity recommended)
-2. **Import** `Healthcare_Launcher.ipynb` into the workspace  
-   *(Workspace → Import → Notebook → upload the .ipynb file)*
-3. **Run All** — wait ~15-20 minutes
+2. **Open any Fabric notebook in that workspace** and run:
+   ```python
+   import fabric_jumpstart
+   fabric_jumpstart.install("payer-provider-healthcare")
+   ```
+   This deploys all Lakehouses, Notebooks, Pipelines, Semantic Model, Power BI Report, RTI items, and the HLS Data Agent into the workspace.
+3. **Open `Healthcare_Launcher`** (the entry-point notebook deployed by step 2) and click **Run All** &mdash; wait ~15-20 minutes.
 
-> **That's it — no configuration needed.** The notebook pulls from the public repo `rasgiza/Fabric-Payer-Provider-HealthCare-Demo` by default. If you want to change settings, edit the CONFIG cell before running — for example, set `DEPLOY_STREAMING = True` to enable Real-Time Intelligence (Eventhouse + KQL + scoring), or point `GITHUB_OWNER` to your own fork.
+### Manual install (without the catalog)
+
+If you don't yet have access to the Jumpstart catalog (`fabric_jumpstart` package), you can deploy this repo directly:
+
+1. **Create an empty Fabric workspace** (F64+ capacity recommended).
+2. **Import** `payer-provider-healthcare/Healthcare_Launcher.Notebook/notebook-content.py` as a notebook
+   *(Workspace &rarr; Import &rarr; Notebook &rarr; upload as `.py` source)*.
+3. **Run All** &mdash; wait ~15-20 minutes.
+
+> **That's it &mdash; no configuration needed.** The launcher pulls from the public repo `rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart` by default. Edit the CONFIG cell before running to customise &mdash; for example set `DEPLOY_STREAMING = True` to enable Real-Time Intelligence (Eventhouse + KQL + scoring), or point `GITHUB_OWNER` to your own fork.
 >
 > **First deployment** deploys ETL + Agents (Cells 1-11). Set `DEPLOY_STREAMING = True` for the full RTI stack (Cells 12-13).
 
@@ -290,7 +313,7 @@ Dual-path design: **Batch ETL** (authoritative, historical) + **Real-Time Intell
 
 ## Deployment Flow
 
-The launcher notebook (`Healthcare_Launcher.ipynb`) is the post-deployment orchestrator. The Fabric Jumpstart installer creates the workspace items from the repo ahead of time — this notebook then runs the runtime steps that bring the workspace to life.
+The launcher notebook (`Healthcare_Launcher.Notebook`) is the post-deployment orchestrator. The Fabric Jumpstart installer creates the workspace items from the repo ahead of time &mdash; this notebook then runs the runtime steps that bring the workspace to life.
 
 ### What happens when you click "Run All"
 
@@ -726,7 +749,7 @@ Repeat daily to build up a realistic data history showing trends over time in th
 
 ## Configuration Options
 
-Edit the top cell of `Healthcare_Launcher.ipynb`:
+Edit the **CONFIGURATION** cell at the top of `Healthcare_Launcher.Notebook`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -752,17 +775,15 @@ Edit the top cell of `Healthcare_Launcher.ipynb`:
 ## Repository Structure
 
 ```
-├── Healthcare_Launcher.ipynb          # <- Import this into Fabric
-├── DATA_AGENT_GUIDE.md                # Agent instructions, routing, few-shots, knowledge base
-├── POWERBI_DASHBOARD_GUIDE.md         # Power BI report pages, measures, Direct Lake tips
-├── FOUNDRY_IQ_SETUP_GUIDE.md          # Azure AI Foundry orchestrator agent setup (11 steps)
-├── FOUNDRY_ORCHESTRATOR_TROUBLESHOOTING.md  # Hybrid query debugging guide
-├── foundry_agent/
-│   └── orchestrator_instructions.md   # Version-controlled orchestrator instructions (v23)
-├── SAMPLE_QUESTIONS.md                # 80+ copy-paste questions for all agents
-├── deployment.yaml                    # Optional: CI/CD config
+fabric-payer-provider-healthcare-demo-jumpstart/
 ├── README.md
-├── payer-provider-healthcare/         # Fabric Git Integration format (jumpstart workspace_path)
+├── LICENSE
+├── CONTRIBUTING.md
+├── SECURITY.md
+├── deployment.yaml                          # Optional: CI/CD config
+│
+├── payer-provider-healthcare/               # Jumpstart workspace_path (deployed by catalog)
+│   ├── Healthcare_Launcher.Notebook/        # ENTRY POINT — orchestrator notebook
 │   ├── lh_bronze_raw.Lakehouse/
 │   ├── lh_silver_stage.Lakehouse/
 │   ├── lh_silver_ods.Lakehouse/
@@ -774,6 +795,8 @@ Edit the top cell of `Healthcare_Launcher.ipynb`:
 │   ├── 06b_Gold_Transform_Load_v2.Notebook/
 │   ├── NB_Generate_Sample_Data.Notebook/
 │   ├── NB_Generate_Incremental_Data.Notebook/
+│   ├── NB_Deploy_Graph_Model.Notebook/
+│   ├── NB_Refresh_Graph_Model.Notebook/
 │   ├── NB_RTI_Event_Simulator.Notebook/
 │   ├── NB_RTI_Setup_Eventhouse.Notebook/
 │   ├── NB_RTI_Fraud_Detection.Notebook/
@@ -781,20 +804,40 @@ Edit the top cell of `Healthcare_Launcher.ipynb`:
 │   ├── NB_RTI_HighCost_Trajectory.Notebook/
 │   ├── PL_Healthcare_Full_Load.DataPipeline/
 │   ├── PL_Healthcare_Master.DataPipeline/
+│   ├── PL_Healthcare_RTI.DataPipeline/
 │   ├── HealthcareDemoHLS.SemanticModel/
+│   ├── HealthcareAnalyticsDashboard.Report/
 │   ├── HealthcareHLSAgent.DataAgent/
-│   └── Healthcare Ontology Agent.DataAgent/
-├── ontology/                          # Ontology manifest (12 entities, 18 relationships) — deployed by Cell 10a
-│   └── Healthcare_Demo_Ontology_HLS/
-├── healthcare_knowledge/              # AI agent knowledge base
+│   ├── Healthcare_RTI_DB.KQLDatabase/       # Schema with retention + streaming policies
+│   └── Healthcare_RTI_Eventhouse.Eventhouse/
+│
+├── data_agents/                             # Reference agent configs (manual UI step)
+│   └── HealthcareOntologyAgent.DataAgent/   # Graph-based agent — created via UI per Cell 11
+│
+├── ontology/                                # Ontology manifest (12 entities, 18 relationships)
+│   └── Healthcare_Demo_Ontology_HLS/        # Deployed by NB_Deploy_Graph_Model
+│
+├── healthcare_knowledge/                    # AI agent knowledge base (uploaded to lh_gold_curated)
 │   ├── clinical_guidelines/
 │   ├── compliance/
 │   ├── denial_management/
 │   ├── formulary/
 │   ├── provider_network/
 │   └── quality_measures/
-└── scripts/                           # Build tools (not deployed)
-    └── convert_from_source.py
+│
+├── foundry_agent/
+│   └── orchestrator_instructions.md         # Version-controlled orchestrator prompt (v23)
+│
+├── DATA_AGENT_GUIDE.md                      # Agent instructions, routing, few-shots, KB
+├── DATA_AGENT_INSTRUCTIONS.md               # Step-by-step agent setup
+├── POWERBI_DASHBOARD_GUIDE.md               # Power BI report pages, measures, Direct Lake tips
+├── FOUNDRY_IQ_SETUP_GUIDE.md                # Azure AI Foundry orchestrator agent setup
+├── FOUNDRY_ORCHESTRATOR_TROUBLESHOOTING.md  # Hybrid query debugging guide
+├── HLS_AGENT_PREP_FOR_AI.md                 # AI-prep checklist for the HLS agent
+├── RTI_DASHBOARD_GUIDE.md                   # RTI dashboard pages and KQL queries
+├── RTI_STREAMING_GUIDE.md                   # Live streaming setup
+├── SAMPLE_QUESTIONS.md                      # 80+ copy-paste questions for all agents
+└── EXECUTIVE_DEMO_RUNBOOK.md                # 5-minute exec walkthrough script
 ```
 
 ## Troubleshooting
