@@ -85,43 +85,57 @@ if UPLOAD_KNOWLEDGE_DOCS:
     import requests, json
     from notebookutils import mssparkutils
 
-    KNOWN_DOCS = [
-        "clinical_terminology.md",
-        "hcc_risk_adjustment.md",
-        "hedis_quality_measures.md",
-        "icd10_common_codes.md",
-        "payer_glossary.md",
-        "provider_glossary.md",
-    ]
     raw_base = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/healthcare_knowledge"
+    api_base = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/healthcare_knowledge"
 
-    # GitHub Contents API to enumerate the folder (handles future additions)
-    api_url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/healthcare_knowledge?ref={GITHUB_BRANCH}"
-    try:
-        resp = requests.get(api_url, timeout=30)
-        if resp.status_code == 200:
-            entries = [e["name"] for e in resp.json() if e.get("name", "").endswith(".md")]
-        else:
-            print(f"  GitHub Contents API returned {resp.status_code}, falling back to known list")
-            entries = KNOWN_DOCS
-    except Exception as e:
-        print(f"  GitHub Contents API failed ({e}), falling back to known list")
-        entries = KNOWN_DOCS
+    # Recursive function to enumerate all .md files in healthcare_knowledge/
+    def enumerate_md_files(path_suffix="", branch=GITHUB_BRANCH):
+        """Walk GitHub tree recursively and return list of (relative_path, raw_url) tuples"""
+        files = []
+        api_url = f"{api_base}{path_suffix}?ref={branch}"
+        try:
+            resp = requests.get(api_url, timeout=30)
+            if resp.status_code != 200:
+                print(f"  [WARN] API {api_url} returned {resp.status_code}")
+                return files
+            for entry in resp.json():
+                if entry.get("type") == "dir":
+                    # Recurse into subdirectory
+                    subfiles = enumerate_md_files(f"{path_suffix}/{entry['name']}", branch)
+                    files.extend(subfiles)
+                elif entry.get("name", "").endswith(".md"):
+                    # Found a markdown file
+                    rel_path = f"{path_suffix}/{entry['name']}".lstrip("/")
+                    raw_url = f"{raw_base}/{rel_path}"
+                    files.append((rel_path, raw_url))
+        except Exception as e:
+            print(f"  [WARN] enumerate_md_files({path_suffix}) failed: {e}")
+        return files
+
+    # Fetch all .md files recursively
+    md_files = enumerate_md_files()
+    print(f"Found {len(md_files)} markdown files in healthcare_knowledge/")
 
     target_dir = "/lakehouse/default/Files/healthcare_knowledge"
     mssparkutils.fs.mkdirs(f"file:{target_dir}")
 
     uploaded = 0
-    for name in entries:
+    for rel_path, raw_url in md_files:
         try:
-            r = requests.get(f"{raw_base}/{name}", timeout=30)
+            # Ensure subdirectory exists
+            file_dir = f"{target_dir}/{rel_path}".rsplit("/", 1)[0]
+            mssparkutils.fs.mkdirs(f"file:{file_dir}")
+            
+            # Fetch and write file
+            r = requests.get(raw_url, timeout=30)
             r.raise_for_status()
-            with open(f"{target_dir}/{name}", "wb") as fh:
+            with open(f"{target_dir}/{rel_path}", "wb") as fh:
                 fh.write(r.content)
             uploaded += 1
         except Exception as e:
-            print(f"  [WARN] failed to upload {name}: {e}")
-    print(f"Uploaded {uploaded}/{len(entries)} knowledge documents to lh_gold_curated/Files/healthcare_knowledge/")
+            print(f"  [WARN] failed to upload {rel_path}: {e}")
+    
+    print(f"Uploaded {uploaded}/{len(md_files)} knowledge documents to lh_gold_curated/Files/healthcare_knowledge/")
 else:
     print("Skipping knowledge doc upload (UPLOAD_KNOWLEDGE_DOCS=False)")
 
