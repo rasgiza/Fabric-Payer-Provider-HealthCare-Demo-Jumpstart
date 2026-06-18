@@ -8,6 +8,9 @@
 
 ```python
 # Install via the Fabric Jumpstart catalog (run inside any Fabric notebook)
+# First time in a new workspace/session: install the package
+%pip install -q fabric-jumpstart
+
 import fabric_jumpstart
 fabric_jumpstart.install("payer-provider-healthcare")
 ```
@@ -146,6 +149,8 @@ This demo aligns directly with the [Microsoft Healthcare Provider Use Cases](htt
 1. **Create an empty Fabric workspace** (F64+ capacity recommended)
 2. **Open any Fabric notebook in that workspace** and run:
    ```python
+   %pip install -q fabric-jumpstart
+
    import fabric_jumpstart
    fabric_jumpstart.install("payer-provider-healthcare")
    ```
