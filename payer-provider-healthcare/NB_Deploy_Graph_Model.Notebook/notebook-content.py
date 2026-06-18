@@ -45,7 +45,7 @@ print("=" * 60)
 ONTOLOGY_NAME = "Healthcare_Demo_Ontology_HLS"
 GRAPH_MODEL_NAME = "Healthcare_Demo_Graph"
 GITHUB_OWNER = "rasgiza"
-GITHUB_REPO = "Fabric-Payer-Provider-HealthCare-Demo"
+GITHUB_REPO = "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart"
 GITHUB_BRANCH = "main"
 
 # -- Auth & Discovery -------------------------------------------------

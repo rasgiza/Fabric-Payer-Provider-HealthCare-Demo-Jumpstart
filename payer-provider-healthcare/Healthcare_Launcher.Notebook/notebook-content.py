@@ -55,8 +55,9 @@
 # the repo into a lakehouse Files/ folder, so a couple of cells download
 # auxiliary files directly from the public mirror).
 GITHUB_OWNER  = "rasgiza"
-GITHUB_REPO   = "Fabric-Payer-Provider-HealthCare-Demo"
-GITHUB_BRANCH = "v1.0.0"   # tag pinned by the fabric-jumpstart catalog entry
+GITHUB_REPO   = "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart"
+GITHUB_BRANCH = "main"     # always pull latest from main
+GITHUB_TOKEN  = ""         # optional PAT for private repos; leave empty for public repos
 
 # Post-deploy options
 UPLOAD_KNOWLEDGE_DOCS = True   # Fetch healthcare_knowledge/*.md and upload to lh_gold_curated
