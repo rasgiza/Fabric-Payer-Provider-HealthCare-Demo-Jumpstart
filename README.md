@@ -155,6 +155,20 @@ This demo aligns directly with the [Microsoft Healthcare Provider Use Cases](htt
    fabric_jumpstart.install("payer-provider-healthcare")
    ```
    This deploys all Lakehouses, Notebooks, Pipelines, Semantic Model, Power BI Report, RTI items, and the HLS Data Agent into the workspace.
+
+   If you see `ValueError: Unknown jumpstart 'payer-provider-healthcare'`, the catalog entry may not be registered in your current library build yet. Use this preregistration fallback:
+   ```python
+   import fabric_jumpstart as jumpstart
+
+   jumpstart._install_from_github(
+       logical_id="payer-provider-healthcare",
+       repo_url="https://github.com/rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart.git",
+       repo_ref="6baa50979e80a86c2c3dd7a0c6ef58e8a826404c",  # pinned commit
+       workspace_path="payer-provider-healthcare/",
+       entry_point="Healthcare_Launcher.Notebook",
+       items_in_scope=["Notebook", "Lakehouse", "DataPipeline", "SemanticModel", "Report", "DataAgent", "Eventhouse", "KQLDatabase"],
+   )
+   ```
 3. **Open `Healthcare_Launcher`** (the entry-point notebook deployed by step 2) and click **Run All** &mdash; wait ~15-20 minutes.
 
 ### Manual install (without the catalog)
