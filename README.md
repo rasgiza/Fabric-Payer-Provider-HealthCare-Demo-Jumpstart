@@ -7,12 +7,13 @@
 > **A Microsoft Fabric Jumpstart** &mdash; one-click deployment of a complete **Healthcare Payer/Provider Analytics** solution. No Python install, no `.env` files, no manual setup.
 
 ```python
-# Install via the Fabric Jumpstart catalog (run inside any Fabric notebook)
+# Install via the Fabric Jumpstart catalog (run inside a setup notebook,
+# e.g. jumpstart-setup -- not in Healthcare_Launcher)
 # First time in a new workspace/session: install the package
 %pip install -q fabric-jumpstart
 
 import fabric_jumpstart
-fabric_jumpstart.install("payer-provider-healthcare")
+fabric_jumpstart.install("payer-provider-healthcare", update_existing=True)
 ```
 
 > **The story in one line:** *Same Fabric data foundation, two delivery surfaces &mdash; **push** to Microsoft Teams via Data Activator the moment a fraud, readmit-risk, or capacity event fires, and **pull** via the Foundry Orchestrator Agent + Power BI / RTI Dashboard when leaders want to investigate. One governance model, real-time and on-demand.*
@@ -147,14 +148,16 @@ This demo aligns directly with the [Microsoft Healthcare Provider Use Cases](htt
 ## Quick Start
 
 1. **Create an empty Fabric workspace** (F64+ capacity recommended)
-2. **Open any Fabric notebook in that workspace** and run:
+2. **Create a setup notebook** (for example `jumpstart-setup`) in that workspace and run:
    ```python
    %pip install -q fabric-jumpstart
 
    import fabric_jumpstart
-   fabric_jumpstart.install("payer-provider-healthcare")
+   fabric_jumpstart.install("payer-provider-healthcare", update_existing=True)
    ```
    This deploys all Lakehouses, Notebooks, Pipelines, Semantic Model, Power BI Report, RTI items, and the HLS Data Agent into the workspace.
+
+   > Why `update_existing=True`? It guarantees the deployed notebook definitions replace any stale or shell items from prior attempts.
 
    If you see `ValueError: Unknown jumpstart 'payer-provider-healthcare'`, the catalog entry may not be registered in your current library build yet. Use this preregistration fallback:
    ```python
@@ -167,6 +170,7 @@ This demo aligns directly with the [Microsoft Healthcare Provider Use Cases](htt
        workspace_path="payer-provider-healthcare/",
        entry_point="Healthcare_Launcher.Notebook",
        items_in_scope=["Notebook", "Lakehouse", "DataPipeline", "SemanticModel", "Report", "DataAgent", "Eventhouse", "KQLDatabase"],
+         update_existing=True,
    )
    ```
 3. **Open `Healthcare_Launcher`** (the entry-point notebook deployed by step 2) and click **Run All** &mdash; wait ~15-20 minutes.
