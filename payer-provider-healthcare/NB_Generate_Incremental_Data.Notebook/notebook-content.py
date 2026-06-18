@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # NB_Generate_Incremental_Data
@@ -20,9 +20,9 @@
 
 print("NB_Generate_Incremental_Data: Starting...")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 import pandas as pd
 import numpy as np
@@ -57,9 +57,9 @@ print(f"Generating incremental data for: {DATE_TAG}")
 print(f"  Encounters: {NUM_ENCOUNTERS}, Claims: {NUM_CLAIMS}")
 print(f"  Patient updates: {NUM_PATIENT_UPDATES}, New patients: {NUM_NEW_PATIENTS}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # REFERENCE DATA (must match NB_Generate_Sample_Data)
@@ -153,9 +153,9 @@ INSURANCE_PROVIDERS = ["Blue Cross Blue Shield", "Aetna", "United Healthcare", "
 
 print("Reference data loaded")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # LOAD EXISTING PATIENTS & PROVIDERS FROM LAKEHOUSE
@@ -215,9 +215,9 @@ except:
 
 print(f"Next IDs: ENC{next_enc:08d} | CLM{next_clm:09d} | RX{next_rx:09d} | DX{next_dx:08d} | PAT{next_pat:06d}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE ENCOUNTERS
@@ -273,9 +273,9 @@ enc_df = generate_encounters_incr(NUM_ENCOUNTERS, patient_ids, provider_ids, STA
 print(f"Generated {len(enc_df)} encounters")
 print(f"  Types: {enc_df['encounter_type'].value_counts().to_dict()}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE CLAIMS
@@ -334,9 +334,9 @@ clm_df = generate_claims_incr(NUM_CLAIMS, enc_df, next_clm)
 denied = clm_df["denial_reason"].notna().sum() if len(clm_df) > 0 else 0
 print(f"Generated {len(clm_df)} claims ({denied} denied)")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE PRESCRIPTIONS (1-3 per encounter)
@@ -384,9 +384,9 @@ def generate_prescriptions_incr(encounters_df, next_id):
 rx_df = generate_prescriptions_incr(enc_df, next_rx)
 print(f"Generated {len(rx_df)} prescriptions")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE DIAGNOSES (1 principal + 0-2 secondary per encounter)
@@ -441,9 +441,9 @@ principal = len(dx_df[dx_df["diagnosis_type"] == "Principal"]) if len(dx_df) > 0
 secondary = len(dx_df[dx_df["diagnosis_type"] == "Secondary"]) if len(dx_df) > 0 else 0
 print(f"Generated {len(dx_df)} diagnoses ({principal} principal, {secondary} secondary)")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE PATIENT UPDATES & NEW PATIENTS
@@ -493,9 +493,9 @@ print(f"Created {len(new_patients_df)} new patients")
 # Combine patient changes
 pat_combined = pd.concat([updated_patients, new_patients_df], ignore_index=True)
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # WRITE INCREMENTAL CSVs TO LAKEHOUSE
@@ -517,9 +517,9 @@ write_csv(dx_df, f"{incr_path}/diagnoses_{TIMESTAMP_TAG}.csv")
 if len(pat_combined) > 0:
     write_csv(pat_combined, f"{incr_path}/patients_{TIMESTAMP_TAG}.csv")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # SUMMARY
@@ -543,3 +543,4 @@ print("  1. Run the pipeline with load_mode=incremental")
 print("  2. Bronze picks up base CSVs + incremental/**/*.csv")
 print("  3. Silver deduplicates, Gold MERGEs star schema")
 print("  4. Refresh the semantic model")
+

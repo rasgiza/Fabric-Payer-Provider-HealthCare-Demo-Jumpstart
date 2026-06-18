@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # # Bronze Layer - Data Ingest (CSV Source)
 # 
@@ -21,9 +21,9 @@
 # ## Parameters (from Pipeline)
 # - `load_mode` - "full" or "incremental" (default: full)
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Configuration and imports
 from pyspark.sql import SparkSession
@@ -52,9 +52,9 @@ print(f"Bronze CSV Ingest started at: {datetime.now()}")
 print(f"Target: {BRONZE_SCHEMA}")
 print(f"Source: {SOURCE_FILES_PATH}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Get parameters from pipeline (or use defaults for manual run)
 try:
@@ -79,17 +79,17 @@ else:
     print("→ Will read incremental CSVs from Files/incremental/")
     print("→ Will append new rows to existing Bronze tables")
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## Table Configuration
 # 
 # Define the transactional and reference tables to load from CSV files.
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Table configuration
 # Each table has:
@@ -126,15 +126,15 @@ print(f"Transactional tables ({len(TRANSACTIONAL_TABLES)}): {[t['name'] for t in
 print(f"Reference tables     ({len(REFERENCE_TABLES)}): {[t['name'] for t in REFERENCE_TABLES]}")
 print(f"Total tables to process: {len(TABLES_CONFIG)}")
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## Helper Functions
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 def load_full_csv(table_config):
     """
@@ -299,17 +299,17 @@ def save_to_bronze(df, table_name, mode="overwrite", table_config=None):
 
     return spark.sql(f"SELECT COUNT(*) as cnt FROM {full_table_name}").collect()[0]["cnt"]
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## Verify Source Files
 # 
 # Check that CSV files are available in Files/ before processing.
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Verify source files are available
 print(f"\nChecking source files ({load_mode} mode)...")
@@ -376,17 +376,17 @@ except Exception as e:
     print("Make sure lh_bronze_raw is set as the default lakehouse for this notebook.")
     available_files = []
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## Process Tables
 # 
 # Read each CSV file and write to Bronze Delta tables.
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Process all tables based on load_mode
 results = []
@@ -436,9 +436,9 @@ for table_config in TABLES_CONFIG:
             "error": str(e)
         })
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## Archive Processed Incremental Files
 # 
@@ -446,9 +446,9 @@ for table_config in TABLES_CONFIG:
 # so they are **not re-read** on subsequent incremental runs.  
 # Full-load mode skips this step (it overwrites tables anyway).
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Archive incremental files after processing
@@ -502,17 +502,17 @@ if load_mode == "incremental":
 else:
     print("Full load mode — archiving skipped (tables were overwritten)")
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## Verify Loaded Data
 # 
 # Quick check of record counts in Bronze tables.
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Verify data in Bronze tables
 print("\nVerifying Bronze tables:")
@@ -528,15 +528,15 @@ for table_config in TABLES_CONFIG:
     except Exception as e:
         print(f"  {tbl}: Error - {e}")
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## Summary
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Print summary
 print("\n" + "="*60)
@@ -566,3 +566,4 @@ print(f"Completed at: {datetime.now()}")
 # Return result for pipeline
 exit_message = f"csv_{load_mode}:{total_records}"
 mssparkutils.notebook.exit(exit_message)
+

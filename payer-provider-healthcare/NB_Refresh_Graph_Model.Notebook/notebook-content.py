@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # NB_Refresh_Graph_Model
@@ -45,9 +45,9 @@ print(f"  Workspace: {workspace_id}")
 
 GM_API = f"{API}/workspaces/{workspace_id}/graphModels"
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ==============================================================
 # STEP 1: Find the graph model
@@ -88,9 +88,9 @@ if not gm_id:
 
 print(f"  Found: {gm_display} ({gm_id})")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ==============================================================
 # STEP 2: Trigger on-demand refresh
@@ -162,9 +162,9 @@ else:
     print(f"    {r.text[:300]}")
     refresh_ok = False
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ==============================================================
 # STEP 3: Smoke test via executeQuery (beta)
@@ -210,9 +210,9 @@ if refresh_ok:
 else:
     print("  Skipping -- refresh did not succeed")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ==============================================================
 # Summary
@@ -230,3 +230,4 @@ if not refresh_ok:
         f"Graph refresh failed for {GRAPH_MODEL_NAME}. "
         "Check the Fabric UI for graph model status."
     )
+

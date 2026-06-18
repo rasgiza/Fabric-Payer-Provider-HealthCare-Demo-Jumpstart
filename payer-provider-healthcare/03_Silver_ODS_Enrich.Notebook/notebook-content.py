@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # # Silver ODS: Enriched Operational Data Store
 # 
@@ -20,9 +20,9 @@
 # lh_silver_stage.patients_clean + lh_bronze_raw.ref_*  →  patients_enriched (default)
 # ```
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Configuration - use fully qualified table names for pipeline execution
 BRONZE = "lh_bronze_raw"
@@ -48,15 +48,15 @@ try:
 except Exception as e:
     print(f"Could not list tables: {e}")
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## Load Reference Data from Bronze
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Load reference tables from Bronze
 ref_icd_codes = spark.sql(f"SELECT * FROM {BRONZE}.ref_icd_codes")
@@ -77,15 +77,15 @@ print(f"  Medications:  {ref_medications.count():,}")
 print("\nref_facilities columns:")
 ref_facilities.printSchema()
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## Load Cleaned Data from Silver Stage
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Load cleaned data from Silver Stage
 patients_clean = spark.sql(f"SELECT * FROM {SILVER_STAGE}.patients_clean")
@@ -114,15 +114,15 @@ print("prescriptions_clean columns:", prescriptions_clean.columns)
 print("encounters_clean columns:", encounters_clean.columns)
 print("claims_clean columns:", claims_clean.columns)
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## 1. Enrich Patients
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Add age calculation and risk stratification
 patients_enriched = patients_clean \
@@ -147,15 +147,15 @@ patients_enriched.write \
 print(f"✓ {SILVER_ODS}.patients_enriched: {patients_enriched.count():,} rows")
 patients_enriched.groupBy("age_group").count().orderBy("age_group").show()
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## 2. Enrich Providers
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Check if providers has facility_id column
 if "facility_id" in providers_clean.columns:
@@ -204,15 +204,15 @@ providers_enriched.write \
 
 print(f"✓ {SILVER_ODS}.providers_enriched: {providers_enriched.count():,} rows")
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## 3. Enrich Encounters
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Start with encounters_clean
 encounters_enriched = encounters_clean
@@ -269,15 +269,15 @@ encounters_enriched.write \
 
 print(f"✓ {SILVER_ODS}.encounters_enriched: {encounters_enriched.count():,} rows")
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## 4. Enrich Claims
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Start with claims_clean
 claims_enriched = claims_clean
@@ -322,15 +322,15 @@ claims_enriched.write \
 
 print(f"✓ {SILVER_ODS}.claims_enriched: {claims_enriched.count():,} rows")
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## 5. Enrich Prescriptions
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Enrich prescriptions with medication reference data and provider info
 prescriptions_enriched = prescriptions_clean
@@ -378,15 +378,15 @@ prescriptions_enriched.write \
 
 print(f"✓ {SILVER_ODS}.prescriptions_enriched: {prescriptions_enriched.count():,} rows")
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## 6. Enrich Diagnoses
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Enrich diagnoses with ICD code descriptions and encounter context
 diagnoses_enriched = diagnoses_clean
@@ -432,15 +432,15 @@ diagnoses_enriched.write \
 
 print(f"✓ {SILVER_ODS}.diagnoses_enriched: {diagnoses_enriched.count():,} rows")
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # ## 7. Verify ODS Tables
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 print("="*60)
 print("SILVER ODS PROCESSING COMPLETE")
@@ -466,3 +466,4 @@ except Exception as e:
     print(f"Could not count tables: {e}")
 
 print(f"\n✅ Processing completed at: {datetime.now()}")
+

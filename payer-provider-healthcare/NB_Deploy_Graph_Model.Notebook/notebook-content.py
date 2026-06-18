@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"python"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"python"}
 
 # # NB_Deploy_Graph_Model
 # 
@@ -27,9 +27,9 @@
 # 5. Deploys the graph (excluding any bad nodes)
 # 6. Waits for data load and runs a smoke test
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 1 -- Configuration & Discovery
@@ -114,9 +114,9 @@ else:
 print()
 print("  [OK] Configuration ready")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 2 -- Parse Ontology & Validate Against Table Schemas
@@ -300,9 +300,9 @@ if val_errors:
 else:
     print("  [OK] All bindings verified against table schemas")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 3 -- Build 5-Part Graph Definition
@@ -507,9 +507,9 @@ gm_parts = [
 ]
 print(f"\n  [OK] {len(gm_parts)} definition parts ready")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 4 -- Per-Node Validation (test each node individually)
@@ -749,9 +749,9 @@ if bad_nodes:
         for fr in frs:
             print(f"      - {fr}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 5 -- Deploy Full Graph (auto-exclude bad nodes)
@@ -843,9 +843,9 @@ if not gm_success:
     else:
         print("  [FAIL] All attempts failed")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 6 -- Wait for Data Load & Smoke Test
@@ -925,3 +925,4 @@ print("=" * 60)
 
 if not gm_success:
     raise RuntimeError("Graph model deployment failed")
+

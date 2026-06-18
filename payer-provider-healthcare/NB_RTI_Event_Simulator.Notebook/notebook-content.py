@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # # RTI Event Simulator — Streaming Healthcare Events
 # 
@@ -26,9 +26,9 @@
 # 
 # **Default lakehouse:** `lh_gold_curated`
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # NB_RTI_Event_Simulator
@@ -46,9 +46,9 @@
 
 print("NB_RTI_Event_Simulator: Starting...")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Attach default lakehouse (self-healing) ----------
 # When run via notebookutils.notebook.run(), the child notebook may not
@@ -112,15 +112,15 @@ else:
     print(f"  WARNING: Could not list lakehouses (HTTP {_lh_resp.status_code})")
 del _req, _ws_id, _tok, _hdr, _lh_resp
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 %pip install azure-eventhub azure-core>=1.31.0 --quiet
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Parameters (override from pipeline or %run) ----------
 BATCH_SIZE = 500         # events per streaming batch
@@ -139,9 +139,9 @@ STREAM_BATCHES = STREAM_BATCHES if "STREAM_BATCHES" in dir() and STREAM_BATCHES 
 # └─────────────────────────────────────────────────────────────────┘
 ES_CONNECTION_STRING = ES_CONNECTION_STRING if "ES_CONNECTION_STRING" in dir() and ES_CONNECTION_STRING else ""
 
-# METADATA **{"language":"python","tags":["parameters"]}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 import pandas as pd
 import numpy as np
@@ -153,9 +153,9 @@ import requests
 
 np.random.seed(None)  # Truly random for each run
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Connect to Eventstream (primary) + KQL Eventhouse (verification) ----------
 #
@@ -211,9 +211,9 @@ if not _es_producer:
     print("  Set ES_CONNECTION_STRING and re-run this notebook.")
     print("="*60)
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- KQL Query (verification only) ----------
 # Used after streaming to confirm data landed in Eventhouse via Eventstream.
@@ -268,9 +268,9 @@ def push_to_eventstream(df_pandas, table_name):
         print(f"  Eventstream ERROR: {table_name} push failed: {e}")
         return False
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Load dimension/fact data from Gold lakehouse ----------
 print("Loading dimension tables from lh_gold_curated...")
@@ -292,9 +292,9 @@ except Exception:
 print(f"  Patients: {len(df_patients)}, Providers: {len(df_providers)}, Facilities: {len(df_facilities)}")
 print(f"  Diagnoses: {len(df_diagnoses)}, Medications: {len(df_medications)}, Payers: {len(df_payers)}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Reference data for realistic event generation ----------
 
@@ -320,9 +320,9 @@ FRAUD_PATTERNS = {
     "upcoding": 0.03,
 }
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Event Generator Functions
@@ -475,9 +475,9 @@ def generate_rx_events(n: int) -> pd.DataFrame:
 
 print("Event generators ready.")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Stream Events — Eventstream primary path
@@ -536,9 +536,9 @@ else:
 
     print(f"\nStreaming complete — {batch_num} batches pushed via Eventstream.")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Summary ----------
 print("\n" + "=" * 60)
@@ -559,4 +559,3 @@ print()
 print("Re-run this notebook anytime to generate more streaming events.")
 print("=" * 60)
 
-# METADATA **{"language":"python"}**

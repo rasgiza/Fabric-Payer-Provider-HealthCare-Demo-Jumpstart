@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # NB_Generate_Sample_Data
@@ -19,9 +19,9 @@
 
 print("NB_Generate_Sample_Data: Starting...")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # Install Faker (not pre-installed in Fabric Spark)
 # Uses subprocess instead of %pip so this notebook can be called via
@@ -29,9 +29,9 @@ print("NB_Generate_Sample_Data: Starting...")
 import subprocess, sys
 subprocess.check_call([sys.executable, "-m", "pip", "install", "faker", "--quiet", "--disable-pip-version-check"])
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 import pandas as pd
 import numpy as np
@@ -66,9 +66,9 @@ DATA_START_DATE = DATA_END_DATE - timedelta(days=730)
 print(f"Generating data for {NUM_PATIENTS} patients, {NUM_ENCOUNTERS} encounters")
 print(f"Date range: {DATA_START_DATE.strftime('%Y-%m-%d')} to {DATA_END_DATE.strftime('%Y-%m-%d')}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # REFERENCE DATA
@@ -243,9 +243,9 @@ MONITOR_TYPES = [
 
 print("Reference data loaded successfully")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE PATIENTS
@@ -285,9 +285,9 @@ print("Generating patients...")
 patients_df = generate_patients(NUM_PATIENTS)
 print(f"  Generated {len(patients_df)} patients")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE PROVIDERS
@@ -323,9 +323,9 @@ print("Generating providers...")
 providers_df = generate_providers(NUM_PROVIDERS)
 print(f"  Generated {len(providers_df)} providers")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE ENCOUNTERS
@@ -417,9 +417,9 @@ print("Generating encounters...")
 encounters_df = generate_encounters(NUM_ENCOUNTERS, patients_df["patient_id"].tolist(), providers_df["provider_id"].tolist())
 print(f"  Generated {len(encounters_df)} encounters")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE CLAIMS
@@ -469,9 +469,9 @@ print("Generating claims...")
 claims_df = generate_claims(encounters_df)
 print(f"  Generated {len(claims_df)} claims")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE PRESCRIPTIONS
@@ -560,9 +560,9 @@ print("Generating prescriptions...")
 prescriptions_df = generate_prescriptions(encounters_df, NUM_PRESCRIPTIONS)
 print(f"  Generated {len(prescriptions_df)} prescriptions")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE DIAGNOSES  (1-3 per encounter, with comorbidity patterns)
@@ -643,9 +643,9 @@ print("Generating diagnoses...")
 diagnoses_df = generate_diagnoses(encounters_df)
 print(f"  Generated {len(diagnoses_df)} diagnoses")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE SDOH DATA
@@ -716,9 +716,9 @@ print("Generating SDOH data...")
 sdoh_df = generate_sdoh()
 print(f"  Generated {len(sdoh_df)} SDOH zip records")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE MONITORS (reference data for IoT/RPM)
@@ -745,9 +745,9 @@ def generate_monitors():
 monitors_df = generate_monitors()
 print(f"  Generated {len(monitors_df)} monitor records")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # GENERATE HEDIS CARE GAP STATUS PER PATIENT
@@ -822,9 +822,9 @@ print("Generating HEDIS care gap data...")
 care_gaps_df = generate_care_gaps(patients_df, diagnoses_df)
 print(f"  Generated {len(care_gaps_df)} care gap records")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # WRITE CSV FILES TO ONELAKE (lh_bronze_raw/Files/)
@@ -880,9 +880,9 @@ write_csv_to_lakehouse(care_gaps_df, f"{FILES_BASE}/care_gaps.csv")
 
 print("\n✅ All data generated and written to lh_bronze_raw/Files/")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # WRITE care_gaps AND hedis_measures TO lh_bronze_raw (Delta tables)
@@ -913,9 +913,9 @@ else:
     print("  WARNING: lh_bronze_raw not found -- care_gaps/hedis_measures not written as Delta.")
     print("  They are still available as CSV in lh_bronze_raw/Files/.")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # SUMMARY
@@ -940,3 +940,4 @@ print(f"  HEDIS Measures: {len(HEDIS_MEASURES):>10,}")
 print(f"  Care Gaps:      {len(care_gaps_df):>10,}")
 print(f"  Date Range:     {DATA_START_DATE.strftime('%Y-%m-%d')} → {DATA_END_DATE.strftime('%Y-%m-%d')}")
 print("=" * 60)
+

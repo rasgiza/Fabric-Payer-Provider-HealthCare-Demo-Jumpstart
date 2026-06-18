@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # # Healthcare Payer & Provider Analytics — Launcher
 #
@@ -42,9 +42,9 @@
 # 4. *(Streaming)* Copy the Eventstream connection string from the portal into
 #    `NB_RTI_Event_Simulator` to start streaming events end-to-end.
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CONFIGURATION — Edit these values
@@ -69,9 +69,9 @@ workspace_id = spark.conf.get("trident.workspace.id")
 print(f"Workspace: {workspace_id}")
 print(f"Source ref: github.com/{GITHUB_OWNER}/{GITHUB_REPO}@{GITHUB_BRANCH}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 1 — Upload healthcare knowledge docs to lh_gold_curated
@@ -139,9 +139,9 @@ if UPLOAD_KNOWLEDGE_DOCS:
 else:
     print("Skipping knowledge doc upload (UPLOAD_KNOWLEDGE_DOCS=False)")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 2 — Generate synthetic data
@@ -168,9 +168,9 @@ if GENERATE_DATA:
 else:
     print("Skipping data generation (GENERATE_DATA=False)")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 3 — Run the full-load pipeline
@@ -255,9 +255,9 @@ else:
     print("Skipping pipeline run (RUN_PIPELINE=False)")
     print("To run manually: Open PL_Healthcare_Master → Run with load_mode=full")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 4 — Create & Refresh Semantic Model (Direct Lake)
@@ -579,9 +579,9 @@ else:
 
 print("=" * 60)
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 4b — Deploy Power BI Report (requires Semantic Model from Cell 4)
@@ -815,9 +815,9 @@ else:
 
 print("\n" + "=" * 60)
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 5 — Deploy Ontology & Graph Model
@@ -1450,9 +1450,9 @@ if ont_result == "[OK]":
     print(f"  GRAPH:       NB_Deploy_Graph_Model{' ':>16} {graph_st}")
     print("=" * 60)
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 6 — Patch Data Agent sources with real workspace artifact IDs
@@ -1637,9 +1637,9 @@ else:
 
 print("\nData Agent source patching complete.")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 7 — Deploy Real-Time Intelligence (RTI) streaming topology
@@ -2553,9 +2553,9 @@ else:
     print("Skipping RTI deployment (DEPLOY_STREAMING=False)")
     print("Set DEPLOY_STREAMING = True in the CONFIG cell to enable Eventhouse + scoring.")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 8 — Run RTI Streaming Pipeline (Eventstream → KQL → Scoring)
@@ -2769,9 +2769,9 @@ else:
     else:
         print("\n  KQL Database not found — cannot verify data or run scoring.")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # CELL 9 — Organize Workspace Items into Folders

@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # # RTI Post-Deploy Setup
 # 
@@ -29,9 +29,9 @@
 # 
 # **Default lakehouse:** `lh_gold_curated`
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # NB_RTI_Setup_Eventhouse -- Post-Deploy Wiring
@@ -46,18 +46,18 @@
 
 print("NB_RTI_Setup_Eventhouse: Starting post-deploy setup...")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Parameters ----------
 WORKSPACE_ID = ""                               # Auto-detected if blank
 EVENTHOUSE_NAME = "Healthcare_RTI_Eventhouse"    # Must match Git artifact displayName
 KQL_DB_NAME = "Healthcare_RTI_DB"                # Must match Git artifact displayName
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 import requests
 import json
@@ -86,9 +86,9 @@ if not WORKSPACE_ID:
 
 print(f"Workspace ID: {WORKSPACE_ID}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Step 1: Discover Eventhouse + KQL Database by displayName
@@ -132,9 +132,9 @@ if not kql_db:
 kql_db_id = kql_db["id"]
 print(f"  KQL Database: {KQL_DB_NAME} ({kql_db_id})")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Step 2: Discover Kusto ingestion URI
@@ -178,9 +178,9 @@ else:
     print("  WARN: Could not discover Kusto URIs -- Kusto ingestion will be skipped")
     print("  KQL tables will still be created for manual use")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Step 3: Execute KQL schema -- create tables + streaming policies + mappings
@@ -410,9 +410,9 @@ for cmd in KQL_COMMANDS:
 
 print(f"\nSchema execution complete: {success_count} succeeded, {fail_count} failed")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Step 3b: Backfill typed tables from existing rti_all_events data
@@ -462,9 +462,9 @@ if _landing_count > 0:
 else:
     print("  rti_all_events is empty — no backfill needed (data will flow via update policies)")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Step 4: Verify setup
@@ -479,9 +479,9 @@ try:
 except Exception as e:
     print(f"  Could not verify tables: {str(e)[:200]}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Step 5: Store Kusto URIs for downstream notebooks
@@ -503,9 +503,9 @@ kusto_config = {
 # Store as notebook output for downstream consumption
 notebookutils.notebook.exit(json.dumps(kusto_config))
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Summary ----------
 print("\n" + "=" * 70)
@@ -536,4 +536,3 @@ print("    5. For live streaming: set MODE='stream' in Event Simulator")
 print("       (uses direct Kusto ingestion -- no manual config needed)")
 print("=" * 70)
 
-# METADATA **{"language":"python"}**

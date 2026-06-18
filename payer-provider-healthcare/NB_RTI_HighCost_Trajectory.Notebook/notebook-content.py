@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # # RTI Use Case 3: High-Cost Member Trajectory
 # 
@@ -22,9 +22,9 @@
 # 
 # **Default lakehouse:** `lh_gold_curated`
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # NB_RTI_HighCost_Trajectory
@@ -37,9 +37,9 @@
 
 print("NB_RTI_HighCost_Trajectory: Starting...")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Attach default lakehouse (self-healing) ----------
 import requests as _req
@@ -100,15 +100,15 @@ else:
     print(f"  WARNING: Could not list lakehouses (HTTP {_lh_resp.status_code})")
 del _req, _ws_id, _tok, _hdr, _lh_resp
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 %pip install azure-kusto-data azure-kusto-ingest azure-core>=1.31.0 --quiet
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
@@ -119,9 +119,9 @@ SPEND_90D_THRESHOLD = 40000    # Flag if 90-day rolling spend exceeds this
 ED_VISITS_30D_THRESHOLD = 3    # Flag if >=3 ED visits in 30 days
 READMIT_WINDOW_DAYS = 30       # Readmission = re-admit within this many days
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Load events ----------
 print("Loading claims and ADT events from KQL Eventhouse (Kusto SDK)...")
@@ -274,9 +274,9 @@ df_facilities = spark.sql("SELECT facility_id, facility_name, latitude AS fac_la
 print(f"  Claims events: {df_claims.count()}")
 print(f"  ADT events: {df_adt.count()}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Step 1: Rolling Spend by Patient
@@ -315,9 +315,9 @@ df_rolling = df_claims_ts.withColumn(
 
 print("  Rolling spend windows computed.")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Step 2: ED Visit Counting
@@ -350,9 +350,9 @@ df_ed_counts = df_ed.withColumn(
 
 print(f"  ED events processed: {df_ed.count()}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Step 3: Readmission Detection
@@ -393,9 +393,9 @@ df_readmit_counts = df_readmit.groupBy("patient_id").agg(
 
 print(f"  Admits analyzed: {df_admits.count()}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Step 4: Combine Signals and Score
@@ -518,10 +518,9 @@ df_output.write.format("delta").mode("overwrite").saveAsTable("lh_gold_curated.r
 alert_count = df_output.count()
 print(f"High-cost trajectory alerts written: {alert_count}")
 
+# CELL ********************
 
-# METADATA **{"language":"python"}**
-
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Push High-Cost Alerts to KQL (direct Kusto ingestion)
@@ -608,9 +607,9 @@ if _KUSTO_QUERY_URI and _KUSTO_INGEST_URI:
 else:
     print("  KQL: Eventhouse not found -- skipping KQL ingestion (Delta table still written)")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Summary Statistics
@@ -685,4 +684,3 @@ df_top.show(truncate=False)
 print("\nNB_RTI_HighCost_Trajectory: COMPLETE")
 print("=" * 60)
 
-# METADATA **{"language":"python"}**

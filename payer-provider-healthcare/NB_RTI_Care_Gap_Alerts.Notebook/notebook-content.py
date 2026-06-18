@@ -1,8 +1,8 @@
 # Fabric notebook source
 
-# METADATA **{"language":"markdown"}**
+# MARKDOWN ********************
 
-# MARKDOWN **{"language":"markdown"}**
+# META {"language":"markdown"}
 
 # # RTI Use Case 2: Care Gap Closure at Point of Care
 # 
@@ -20,9 +20,9 @@
 # 
 # **Default lakehouse:** `lh_gold_curated`
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # NB_RTI_Care_Gap_Alerts
@@ -35,9 +35,9 @@
 
 print("NB_RTI_Care_Gap_Alerts: Starting...")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Attach default lakehouse (self-healing) ----------
 import requests as _req
@@ -109,22 +109,22 @@ else:
     print(f"  WARNING: Could not list lakehouses (HTTP {_lh_resp.status_code})")
 del _req, _ws_id, _tok, _hdr, _lh_resp
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 %pip install azure-kusto-data azure-kusto-ingest azure-core>=1.31.0 --quiet
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Load data ----------
 print("Loading ADT events from KQL Eventhouse (Kusto SDK)...")
@@ -295,9 +295,9 @@ except Exception:
 print(f"  ADT events: {df_adt.count()}")
 print(f"  Patients: {df_patients.count()}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Care Gap Alert Logic
@@ -315,9 +315,9 @@ df_open_gaps = df_care_gaps.filter(F.col("is_gap_open") == "true")
 print(f"  Actionable encounters (ADMIT/OBSERVATION): {df_encounters.count()}")
 print(f"  Open care gaps: {df_open_gaps.count()}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ---------- Join encounters with open care gaps ----------
 df_alerts = (
@@ -354,9 +354,9 @@ else:
 
 print(f"  Patient-encounter-gap matches: {df_alerts.count()}")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Priority Ranking and Alert Generation
@@ -430,10 +430,9 @@ df_output.write.format("delta").mode("overwrite").saveAsTable("lh_gold_curated.r
 alert_count = df_output.count()
 print(f"Care gap alerts written: {alert_count}")
 
+# CELL ********************
 
-# METADATA **{"language":"python"}**
-
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Push Care Gap Alerts to KQL (direct Kusto ingestion)
@@ -519,9 +518,9 @@ if _KUSTO_QUERY_URI and _KUSTO_INGEST_URI:
 else:
     print("  KQL: Eventhouse not found -- skipping KQL ingestion (Delta table still written)")
 
-# METADATA **{"language":"python"}**
+# CELL ********************
 
-# CELL **{"language":"python"}**
+# META {"language":"python"}
 
 # ============================================================================
 # Summary Statistics
@@ -584,4 +583,3 @@ df_by_facility.show(truncate=False)
 print("\nNB_RTI_Care_Gap_Alerts: COMPLETE")
 print("=" * 60)
 
-# METADATA **{"language":"python"}**
