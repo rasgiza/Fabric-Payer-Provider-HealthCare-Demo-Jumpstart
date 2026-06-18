@@ -163,7 +163,7 @@ This demo aligns directly with the [Microsoft Healthcare Provider Use Cases](htt
    jumpstart._install_from_github(
        logical_id="payer-provider-healthcare",
        repo_url="https://github.com/rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart.git",
-       repo_ref="6baa50979e80a86c2c3dd7a0c6ef58e8a826404c",  # pinned commit
+         repo_ref="main",  # use a branch/tag ref the installer can clone
        workspace_path="payer-provider-healthcare/",
        entry_point="Healthcare_Launcher.Notebook",
        items_in_scope=["Notebook", "Lakehouse", "DataPipeline", "SemanticModel", "Report", "DataAgent", "Eventhouse", "KQLDatabase"],
