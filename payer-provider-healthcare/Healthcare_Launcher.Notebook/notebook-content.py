@@ -383,10 +383,14 @@ else:
         _tmp_dir = tempfile.mkdtemp()
         _sm_local = os.path.join(_tmp_dir, SM_REPO_DIR)
         try:
+            _gh_owner = globals().get("GITHUB_OWNER", "rasgiza")
+            _gh_repo = globals().get("GITHUB_REPO", "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart")
+            _gh_branch = globals().get("GITHUB_BRANCH", "main")
+            _gh_token = globals().get("GITHUB_TOKEN", "")
             _gh_hdrs = {"Accept": "application/vnd.github.v3+json"}
-            if GITHUB_TOKEN:
-                _gh_hdrs["Authorization"] = f"Bearer {GITHUB_TOKEN}"
-            _tree_url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/git/trees/{GITHUB_BRANCH}?recursive=1"
+            if _gh_token:
+                _gh_hdrs["Authorization"] = f"Bearer {_gh_token}"
+            _tree_url = f"https://api.github.com/repos/{_gh_owner}/{_gh_repo}/git/trees/{_gh_branch}?recursive=1"
             _tree_r = requests.get(_tree_url, headers=_gh_hdrs)
             _tree_r.raise_for_status()
             _sm_prefix = SM_REPO_DIR + "/"
@@ -399,7 +403,7 @@ else:
                 rel = entry["path"][len(_sm_prefix):]
                 if rel == ".platform":
                     continue
-                raw_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/{entry['path']}"
+                raw_url = f"https://raw.githubusercontent.com/{_gh_owner}/{_gh_repo}/{_gh_branch}/{entry['path']}"
                 dr = requests.get(raw_url)
                 dr.raise_for_status()
                 local_path = os.path.join(_sm_local, rel)
@@ -657,10 +661,14 @@ else:
     else:
         print(f"  PBIX not found on lakehouse. Downloading from GitHub...")
         try:
+            _gh_owner = globals().get("GITHUB_OWNER", "rasgiza")
+            _gh_repo = globals().get("GITHUB_REPO", "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart")
+            _gh_branch = globals().get("GITHUB_BRANCH", "main")
+            _gh_token = globals().get("GITHUB_TOKEN", "")
             gh_hdrs = {"Accept": "application/vnd.github.v3.raw"}
-            if GITHUB_TOKEN:
-                gh_hdrs["Authorization"] = f"Bearer {GITHUB_TOKEN}"
-            raw_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/{PBIX_REPO_PATH}"
+            if _gh_token:
+                gh_hdrs["Authorization"] = f"Bearer {_gh_token}"
+            raw_url = f"https://raw.githubusercontent.com/{_gh_owner}/{_gh_repo}/{_gh_branch}/{PBIX_REPO_PATH}"
             dl = requests.get(raw_url, headers=gh_hdrs)
             dl.raise_for_status()
             pbix_bytes = dl.content
