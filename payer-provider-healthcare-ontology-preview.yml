@@ -1,0 +1,43 @@
+id: 27
+logical_id: payer-provider-healthcare-ontology-preview
+name: Payer/Provider Healthcare Demo (Ontology + Graph Preview)
+description: >-
+  Preview variant of the healthcare payer/provider jumpstart that includes
+  ontology and graph-model deployment paths. Use this track for validation of
+  ontology/graph APIs and agent graph traversal behavior. Not recommended for
+  broad catalog rollout until GraphModel lifecycle is fully stable.
+date_added: 06/18/2026
+include_in_listing: false
+workload_tags:
+- Power BI
+- Data Engineering
+- Data Factory
+- Data Science
+- Real-Time Intelligence
+scenario_tags:
+- Batch Processing
+- Modeling
+- Streaming
+- Ontology
+type: Demo
+source:
+  repo_url: https://github.com/rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart.git
+  repo_ref: main
+  workspace_path: payer-provider-healthcare/
+items_in_scope:
+- Notebook
+- Lakehouse
+- DataPipeline
+- SemanticModel
+- Report
+- DataAgent
+- Eventhouse
+- KQLDatabase
+jumpstart_docs_uri: 'https://github.com/rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart/blob/main/README.md'
+entry_point: Healthcare_Launcher.Notebook
+test_suite: ''
+owner_email: kwamesefah@microsoft.com
+minutes_to_deploy: 12
+minutes_to_complete_jumpstart: 35
+difficulty: "Advanced"
+last_updated: "2026-06-18"

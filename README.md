@@ -18,6 +18,13 @@ fabric_jumpstart.install("payer-provider-healthcare", update_existing=True)
 
 > **The story in one line:** *Same Fabric data foundation, two delivery surfaces &mdash; **push** to Microsoft Teams via Data Activator the moment a fraud, readmit-risk, or capacity event fires, and **pull** via the Foundry Orchestrator Agent + Power BI / RTI Dashboard when leaders want to investigate. One governance model, real-time and on-demand.*
 
+> [!NOTE]
+> **Release tracks:** this repository is now managed with two tracks for catalog reliability.
+> - **Stable track (current catalog ID):** `payer-provider-healthcare` (recommended for broad deployment)
+> - **Preview track:** `payer-provider-healthcare-ontology-preview` (ontology + graph model validation path)
+>
+> The preview track is intentionally kept out of catalog listing until GraphModel lifecycle behavior is consistently stable across tenants.
+
 > [!IMPORTANT]
 > - All data in this demo is **100% synthetic**. No real patient information (PHI) is used.
 > - Data was generated using a synthetic data generator with realistic distributions but entirely fictional names and records.
