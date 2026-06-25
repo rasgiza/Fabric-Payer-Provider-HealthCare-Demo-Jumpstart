@@ -15,14 +15,14 @@ and the exact steps a new user needs after cloning the repo.
 │  Cell 12 (Healthcare_Launcher) — ONE-TIME SETUP                    │
 │  • Creates Eventhouse + KQL DB + Eventstream                       │
 │  • Wires Eventstream topology (source → destinations) via API      │
-│  • Prints 3 steps:                                                 │
+│  • Prints 2 steps:                                                 │
 │    Step A: Enable OneLake Availability on KQL DB (portal)          │
-│    Step B: Copy Eventstream connection string (portal)             │
-│    Step C: (Optional) Switch to Direct Ingestion (portal)          │
+│    Step B: (Optional) Switch to Direct Ingestion (portal)          │
 └──────────────────────────────┬──────────────────────────────────────┘
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Cell 13 (Healthcare_Launcher) — RUN THE PIPELINE                  │
+│  0. Auto-fetches Eventstream connection string via REST API        │
 │  1. Creates OneLake shortcuts in lh_gold_curated:                  │
 │     rti_claims_events → KQL claims_events                          │
 │     rti_adt_events    → KQL adt_events                             │
@@ -174,7 +174,7 @@ connection configuration needed.
 ### Prerequisites
 - Healthcare_Launcher Cell 1–11 completed (lakehouses, notebooks, data deployed)
 - `DEPLOY_STREAMING = True` in the Configuration cell
-- Fabric capacity **active** (F64 or higher recommended)
+- Fabric capacity **active** (F4 minimum; **F16+** recommended if you run streaming alongside the Data Agent, Foundry agent, and Direct Lake reports during a live demo &mdash; concurrent load can throttle smaller SKUs)
 
 ### Step 1: Run Cell 12 (RTI Deployment) — Automated
 Cell 12 deploys all RTI artifacts:
@@ -192,16 +192,13 @@ This exposes KQL tables as Delta Parquet in OneLake. The mirroring policy (set b
 
 > **Why can't this be automated?** OneLake Availability is a portal-only toggle — there is no public REST API or KQL command to enable it programmatically as of April 2026.
 
-### Step 3: Copy the Eventstream Connection String (Portal)
-1. Open **Healthcare_RTI_Eventstream** in the Fabric portal
-2. Click the **HealthcareCustomEndpoint** source node
-3. Copy the **Connection String** (includes EntityPath)
+### Step 3: Run Cell 13 (Pipeline Trigger) — Automated
+Just run Cell 13. It auto-fetches the Eventstream Custom Endpoint connection string via the Fabric REST API (`GET /eventstreams/{id}/sources/{sourceId}/connection`), so no portal copy/paste is needed.
 
-### Step 4: Run Cell 13 (Pipeline Trigger) — Automated
-1. Paste the connection string into `ES_CONNECTION_STRING`
-2. Run Cell 13
+> **Fallback (if auto-fetch fails):** open **Healthcare_RTI_Eventstream** → **HealthcareCustomEndpoint** in the portal, copy the **Connection String** (includes EntityPath), paste it into `ES_CONNECTION_STRING`, and re-run Cell 13.
 
 Cell 13 will:
+0. **Auto-fetch the connection string** via the Eventstream REST API
 1. **Create OneLake shortcuts** in `lh_gold_curated` pointing to the KQL tables
 2. **Trigger PL_Healthcare_RTI** which runs:
    - `NB_RTI_Event_Simulator` — streams 10 batches of events

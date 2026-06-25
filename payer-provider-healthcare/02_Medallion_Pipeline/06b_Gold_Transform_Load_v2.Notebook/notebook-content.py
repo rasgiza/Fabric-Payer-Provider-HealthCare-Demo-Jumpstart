@@ -419,6 +419,25 @@ print("=" * 60)
 
 df_providers = spark.table(f"{SILVER}.providers_enriched")
 
+# Deterministic provider enrichment attributes required by the semantic model
+# (credentialing, RVU productivity, engagement). Seeded from a hash of
+# provider_id so values are stable across runs. years_experience derives from
+# hire_date when available, otherwise from the same deterministic seed.
+_prov_cols = [c.lower() for c in df_providers.columns]
+_seed = abs(hash(col("provider_id")))
+_seed_rvu = abs(hash(concat(col("provider_id"), lit("_rvu"))))
+_seed_eng = abs(hash(concat(col("provider_id"), lit("_eng"))))
+
+if "hire_date" in _prov_cols:
+    _years_raw = floor(datediff(current_date(), col("hire_date").cast("date")) / 365.0)
+    _years_exp = when(_years_raw.isNull() | (_years_raw < 0), (_seed % 35) + 1).otherwise(_years_raw).cast("int")
+else:
+    _years_exp = ((_seed % 35) + 1).cast("int")
+
+_rvu_target_d = (4000 + (_seed_rvu % 4001)).cast("double")
+_annual_rvu_target = _rvu_target_d.cast("long")
+_actual_rvu = (_rvu_target_d * (0.75 + (_seed_rvu % 51) / 100.0)).cast("long")
+
 df_provider_source = df_providers.select(
     col("provider_id"),
     col("first_name"),
@@ -428,7 +447,18 @@ df_provider_source = df_providers.select(
     col("specialty"),
     coalesce(col("department"), lit("General")).alias("department"),
     coalesce(col("facility_id"), lit(None).cast("string")).alias("facility_id"),
-    when(col("is_active").cast("boolean") == True, 1).otherwise(0).alias("is_active")
+    when(col("is_active").cast("boolean") == True, 1).otherwise(0).alias("is_active"),
+    _years_exp.alias("years_experience"),
+    ((_seed % 10) < 8).alias("board_certified"),
+    when((_seed % 3) == 0, "Employed").when((_seed % 3) == 1, "Contracted").otherwise("Locum Tenens").alias("contract_type"),
+    _annual_rvu_target.alias("annual_rvu_target"),
+    _actual_rvu.alias("actual_rvu"),
+    (800 + (_seed % 1701)).cast("int").alias("patient_panel_size"),
+    round(3.5 + (_seed_eng % 151) / 100.0, 2).alias("patient_satisfaction_score"),
+    ((_seed_eng % 10) < 6).alias("telehealth_enabled"),
+    (60 + (_seed_eng % 41)).cast("int").alias("ehr_adoption_score"),
+    (70 + (_seed_rvu % 31)).cast("int").alias("documentation_score"),
+    when((_seed % 4) == 3, "Part-Time").otherwise("Full-Time").alias("fte_status"),
 ).dropDuplicates(["provider_id"])
 
 PROVIDER_TABLE = f"{GOLD}.dim_provider"
@@ -535,23 +565,32 @@ except AnalysisException:
     df_payers = df_claims_src.select("payer_id", "payer_name").distinct()
     print(f"   Source: derived from claims ({df_payers.count()} payers)")
 
-# Use upstream payer_type if available (from ref_payers join), otherwise derive
+# Carry upstream payer attributes through to gold. payer_type, plan_type, state,
+# network_size and avg_reimbursement_pct originate in the data generator
+# (payers.csv) and are required by the HealthcareDemoHLS semantic model. When a
+# column is absent (claims-derived fallback path) a sensible default is used.
 payer_cols = [c.lower() for c in df_payers.columns]
-if "payer_type" in payer_cols:
-    df_payer_source = df_payers.select(
-        col("payer_id"),
-        col("payer_name"),
-        col("payer_type")
-    ).dropDuplicates(["payer_id"])
-else:
-    df_payer_source = df_payers.select(
-        col("payer_id"),
-        col("payer_name"),
-        when(lower(col("payer_name")).contains("medicare"), "Medicare")
-        .when(lower(col("payer_name")).contains("medicaid"), "Medicaid")
-        .when(lower(col("payer_name")).contains("self") | lower(col("payer_name")).contains("cash"), "Self-Pay")
-        .otherwise("Commercial").alias("payer_type")
-    ).dropDuplicates(["payer_id"])
+
+payer_type_expr = (
+    col("payer_type") if "payer_type" in payer_cols else
+    when(lower(col("payer_name")).contains("medicare"), "Medicare")
+    .when(lower(col("payer_name")).contains("medicaid"), "Medicaid")
+    .when(lower(col("payer_name")).contains("self") | lower(col("payer_name")).contains("cash"), "Self-Pay")
+    .otherwise("Commercial")
+)
+
+def _payer_attr(name, default):
+    return col(name) if name in payer_cols else lit(default)
+
+df_payer_source = df_payers.select(
+    col("payer_id"),
+    col("payer_name"),
+    payer_type_expr.alias("payer_type"),
+    _payer_attr("plan_type", "Unknown").alias("plan_type"),
+    _payer_attr("state", "N/A").alias("state"),
+    _payer_attr("network_size", "Unknown").alias("network_size"),
+    _payer_attr("avg_reimbursement_pct", 0.80).cast("double").alias("avg_reimbursement_pct"),
+).dropDuplicates(["payer_id"])
 
 PAYER_TABLE = f"{GOLD}.dim_payer"
 
@@ -1120,6 +1159,32 @@ _risk_score = coalesce(
     _risk_fallback
 )
 
+# DRG (Diagnosis-Related Group) assignment — required by the semantic model
+# (drg_* columns and the 'Avg DRG Weight' measure). Deterministic by
+# encounter_id so values are stable across runs. Weights approximate CMS MS-DRG
+# relative weights; expected_reimbursement = weight x national base rate.
+DRG_REF = [
+    ("291", "Heart Failure & Shock w MCC", 1.35),
+    ("470", "Major Joint Replacement w/o MCC", 2.05),
+    ("194", "Simple Pneumonia & Pleurisy w CC", 0.98),
+    ("313", "Chest Pain", 0.62),
+    ("392", "Esophagitis & Digestive Disorders w/o MCC", 0.79),
+    ("871", "Septicemia w/o MV >96h w MCC", 1.85),
+    ("247", "Percutaneous Cardiovascular Proc w Drug-Eluting Stent", 2.40),
+    ("690", "Kidney & Urinary Tract Infections w/o MCC", 0.85),
+    ("064", "Intracranial Hemorrhage / Stroke w MCC", 1.75),
+    ("885", "Psychoses", 0.95),
+]
+_drg_idx = (abs(hash(col("e.encounter_id"))) % len(DRG_REF)).cast("int")
+
+def _drg_when(_pos):
+    _e = when(_drg_idx == 0, lit(DRG_REF[0][_pos]))
+    for _i in range(1, len(DRG_REF)):
+        _e = _e.when(_drg_idx == _i, lit(DRG_REF[_i][_pos]))
+    return _e
+
+_drg_weight = _drg_when(2).cast("double")
+
 df_fact_encounter = df_enc.select(
     col("e.encounter_id"),
     (year("e.encounter_date") * 10000 + month("e.encounter_date") * 100 + dayofmonth("e.encounter_date")).alias("encounter_date_key"),
@@ -1140,6 +1205,10 @@ df_fact_encounter = df_enc.select(
     (when(_risk_score >= 0.7, "High")
      .when(_risk_score >= 0.3, "Medium")
      .otherwise("Low")).alias("readmission_risk_category"),
+    _drg_when(0).alias("drg_code"),
+    _drg_when(1).alias("drg_description"),
+    _drg_weight.alias("drg_weight"),
+    round(_drg_weight * lit(6250.0), 2).alias("expected_reimbursement"),
     current_timestamp().alias("_load_timestamp")
 ).dropDuplicates(["encounter_id"])
 
@@ -1234,6 +1303,9 @@ df_clm = df_clm.withColumn(
 ).withColumn(
     "_denial_reason_idx",
     (abs(hash(col("c.claim_id"))) % 7).cast("int")
+).withColumn(
+    "_appeal_idx",
+    (abs(hash(concat(col("c.claim_id"), lit("appeal")))) % 100).cast("int")
 )
 
 df_fact_claim = df_clm.select(
@@ -1298,6 +1370,26 @@ df_fact_claim = df_clm.select(
         .when(col("_denial_reason_idx") == 5, lit("Verify network status or obtain authorization"))
         .otherwise(coalesce(col("ml.recommended_action") if has_denial_ml else lit(None), lit("Gather missing documentation and resubmit")))
     ).otherwise(lit(None)).alias("recommended_action"),
+    when(col("c.payment_date").isNotNull(),
+         greatest(datediff(col("c.payment_date").cast("date"), col("c.claim_date").cast("date")), lit(0)))
+    .otherwise(lit(None)).cast("int").alias("days_to_payment"),
+    round(
+        coalesce(col("c.paid_amount").cast("double"), col("c.billed_amount").cast("double") * 0.80, lit(0.0)) /
+        when(coalesce(col("c.allowed_amount").cast("double"), col("c.billed_amount").cast("double") * 0.85, lit(1.0)) > 0,
+             coalesce(col("c.allowed_amount").cast("double"), col("c.billed_amount").cast("double") * 0.85))
+        .otherwise(lit(None)), 4).alias("net_collection_rate"),
+    when(col("_is_denied"),
+         date_add(col("c.claim_date").cast("date"), 15 + (col("_appeal_idx") % 25)).cast("timestamp"))
+    .otherwise(lit(None).cast("timestamp")).alias("appeal_date"),
+    when(col("_is_denied"),
+         when(col("_appeal_idx") < 35, lit("Overturned"))
+         .when(col("_appeal_idx") < 60, lit("Upheld"))
+         .when(col("_appeal_idx") < 80, lit("Pending"))
+         .otherwise(lit("Withdrawn")))
+    .otherwise(lit("N/A")).alias("appeal_outcome"),
+    when(col("_is_denied") & (col("_appeal_idx") < 35),
+         round(coalesce(col("c.billed_amount").cast("double"), lit(0.0)) * 0.60, 2))
+    .otherwise(lit(0.0)).alias("appeal_amount_recovered"),
     current_timestamp().alias("_load_timestamp")
 ).dropDuplicates(["claim_id"])
 

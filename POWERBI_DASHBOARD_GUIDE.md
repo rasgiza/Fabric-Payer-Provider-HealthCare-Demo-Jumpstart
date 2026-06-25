@@ -300,7 +300,7 @@ The semantic model uses **Direct Lake** mode, which reads directly from Delta ta
 - No data duplication
 
 **Limitations:**
-- Requires F64+ Fabric capacity
+- Requires F4+ Fabric capacity
 - Complex DAX may fall back to DirectQuery (slower)
 - Column cardinality limits apply
 

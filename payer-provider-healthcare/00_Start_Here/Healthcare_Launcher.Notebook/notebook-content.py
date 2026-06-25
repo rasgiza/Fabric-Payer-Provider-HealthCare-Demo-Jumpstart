@@ -41,21 +41,27 @@
 # semantic model, the `HealthcareHLSAgent` Data Agent datasources are remapped
 # via `parameter.yml`, the healthcare knowledge documents are copied to
 # `lh_gold_curated/Files/healthcare_knowledge/` by the installer's file-copy
-# step, and all items land in the `payer-provider-healthcare` workspace folder.
+# step, and all items land in the `payer-provider-healthcare` workspace folder,
+# organized into functional subfolders (Start Here, Data Generation, Medallion
+# Pipeline, Lakehouses, Orchestration, Real-Time Intelligence, AI & Graph).
 #
 # ## Prerequisites
 #
-# - Workspace is a Fabric-capacity workspace (F64+ recommended for Direct Lake + RTI).
+# - Workspace is a Fabric-capacity workspace. **F4** is enough to install and run
+#   the Jumpstart end-to-end (Direct Lake + RTI run fine on small SKUs). For a
+#   **live demo** that runs streaming + RTI scoring + Data Agent + Foundry agent
+#   in parallel, use **F16+** &mdash; concurrent interactive load can throttle F2/F4.
 # - This notebook was deployed via `fabric_jumpstart.install('payer-provider-healthcare', ...)`.
-# - All items in the `payer-provider-healthcare/` folder are visible in the workspace.
+# - All items in the `payer-provider-healthcare/` folder (and its functional
+#   subfolders) are visible in the workspace.
 #
 # ## What you do next
 #
 # 1. Edit the **CONFIGURATION** cell below if you want to skip data generation or enable streaming.
 # 2. **Run All**.
 # 3. When complete, open the **HealthcareAnalyticsDashboard** Power BI report, the **Healthcare RTI Dashboard** (real-time KQL), or chat with the **HealthcareHLSAgent** Data Agent.
-# 4. *(Streaming)* Copy the Eventstream connection string from the portal into
-#    `NB_RTI_Event_Simulator` to start streaming events end-to-end.
+# 4. *(Streaming)* Enable OneLake availability on **Healthcare_RTI_DB**, then run the
+#    streaming cell — the Eventstream connection string is fetched automatically.
 
 # CELL ********************
 
@@ -63,17 +69,19 @@
 # CONFIGURATION — Edit these values
 # ============================================================================
 
-# GitHub source (used as a runtime fallback when the ontology/graph cell fetches
-# its ontology JSON directly from the public mirror).
-GITHUB_OWNER  = "rasgiza"
-GITHUB_REPO   = "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart"
-GITHUB_BRANCH = "main"     # always pull latest from main
-GITHUB_TOKEN  = ""         # optional PAT for private repos; leave empty for public repos
-
 # Post-deploy options
 GENERATE_DATA         = True   # Run NB_Generate_Sample_Data to populate lh_bronze_raw
 RUN_PIPELINE          = True   # Run PL_Healthcare_Master end-to-end (full-load)
 DEPLOY_STREAMING      = True   # Wire RTI Eventstream topology, deploy KQL Dashboard, run scoring notebooks
+
+# ----------------------------------------------------------------------------
+# Source location (advanced) — leave as-is unless you deployed from a fork.
+# Used only as a runtime fallback when the ontology/SM cells fetch their
+# definition files directly from the public repo.
+# ----------------------------------------------------------------------------
+GITHUB_OWNER  = "rasgiza"
+GITHUB_REPO   = "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart"
+GITHUB_BRANCH = "main"
 
 # Resolve the workspace_id at runtime (set automatically by Fabric)
 workspace_id = spark.conf.get("trident.workspace.id")
@@ -238,7 +246,7 @@ headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json
 FABRIC_API = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
 
 SM_NAME = "HealthcareDemoHLS"
-SM_REPO_DIR = "payer-provider-healthcare/HealthcareDemoHLS.SemanticModel"
+SM_REPO_DIR = "payer-provider-healthcare/06_AI_and_Graph/HealthcareDemoHLS.SemanticModel"
 URL_PATTERN = re.compile(
     r'https://onelake\.dfs\.fabric\.microsoft\.com/'
     r'[0-9a-fA-F-]{36}/[0-9a-fA-F-]{36}'
@@ -341,10 +349,7 @@ else:
             _gh_owner = globals().get("GITHUB_OWNER", "rasgiza")
             _gh_repo = globals().get("GITHUB_REPO", "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart")
             _gh_branch = globals().get("GITHUB_BRANCH", "main")
-            _gh_token = globals().get("GITHUB_TOKEN", "")
             _gh_hdrs = {"Accept": "application/vnd.github.v3+json"}
-            if _gh_token:
-                _gh_hdrs["Authorization"] = f"Bearer {_gh_token}"
             _tree_url = f"https://api.github.com/repos/{_gh_owner}/{_gh_repo}/git/trees/{_gh_branch}?recursive=1"
             _tree_r = requests.get(_tree_url, headers=_gh_hdrs)
             _tree_r.raise_for_status()
@@ -1002,7 +1007,9 @@ if ont_result == "[OK]":
     print("Step 2: Deploy Graph Model")
     print("-" * 40)
 
-    # Ensure NB_Deploy_Graph_Model exists in the workspace with latest content
+    # NB_Deploy_Graph_Model is deployed as a repo item by the installer.
+    # Confirm it's present in the workspace, then run it directly --
+    # no GitHub download or notebook (re)creation needed.
     token = notebookutils.credentials.getToken("pbi")
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     _items_r = requests.get(f"{API}/workspaces/{workspace_id}/items?type=Notebook", headers=headers)
@@ -1012,136 +1019,9 @@ if ont_result == "[OK]":
             if _it["displayName"] == "NB_Deploy_Graph_Model":
                 _nb_id = _it["id"]
                 break
-
-    # Always download latest notebook source from GitHub
-    _py_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/payer-provider-healthcare/NB_Deploy_Graph_Model.Notebook/notebook-content.py"
-    _py_r = requests.get(_py_url)
-
-    if _py_r.status_code != 200:
-        if _nb_id:
-            print(f"  NB_Deploy_Graph_Model exists ({_nb_id}) -- using existing version")
-        else:
-            print(f"  [FAIL] Could not download notebook source: HTTP {_py_r.status_code}")
-    else:
-            # Convert .py -> ipynb (inline converter, self-contained)
-            def _py_to_ipynb_mini(py_text):
-                lines = py_text.split("\n")
-                cells = []
-                i = 0
-                while i < len(lines) and lines[i].strip() in ("", "# Fabric notebook source"):
-                    i += 1
-                while i < len(lines):
-                    if lines[i].startswith("# METADATA **"):
-                        i += 1
-                        while i < len(lines) and lines[i].strip() == "":
-                            i += 1
-                        if i >= len(lines):
-                            break
-                        if lines[i].startswith("# CELL **"):
-                            ct = "code"
-                        elif lines[i].startswith("# MARKDOWN **"):
-                            ct = "markdown"
-                        else:
-                            i += 1; continue
-                        i += 1
-                        if i < len(lines) and lines[i].strip() == "":
-                            i += 1
-                        cl = []
-                        while i < len(lines) and not lines[i].startswith("# METADATA **"):
-                            cl.append(lines[i]); i += 1
-                        while cl and cl[-1].strip() == "":
-                            cl.pop()
-                        if ct == "markdown":
-                            cl = [(l[2:] if l.startswith("# ") else ("" if l == "#" else l)) for l in cl]
-                        if cl:
-                            src = [l + "\n" for l in cl[:-1]] + [cl[-1]]
-                            c = {"cell_type": ct, "metadata": {}, "source": src}
-                            if ct == "code":
-                                c["outputs"] = []; c["execution_count"] = None
-                            cells.append(c)
-                    else:
-                        i += 1
-                nb = {"nbformat": 4, "nbformat_minor": 5,
-                      "metadata": {"kernel_info": {"name": "synapse_pyspark"},
-                                   "kernelspec": {"name": "synapse_pyspark", "display_name": "Synapse PySpark"},
-                                   "language_info": {"name": "python"}},
-                      "cells": cells}
-                return json.dumps(nb, indent=1, ensure_ascii=False)
-
-            _ipynb_str = _py_to_ipynb_mini(_py_r.text)
-            _ipynb_b64 = base64.b64encode(_ipynb_str.encode("utf-8")).decode("utf-8")
-            _ipynb_parts = [{"path": "notebook-content.ipynb", "payload": _ipynb_b64, "payloadType": "InlineBase64"}]
-
-            if _nb_id:
-                # Notebook exists -- update its definition with latest code
-                print(f"  Updating NB_Deploy_Graph_Model ({_nb_id}) with latest code...")
-                _upd_body = {"definition": {"format": "ipynb", "parts": _ipynb_parts}}
-                _ur = requests.post(f"{API}/workspaces/{workspace_id}/items/{_nb_id}/updateDefinition",
-                                    headers=headers, json=_upd_body)
-                if _ur.status_code == 202:
-                    _uloc = _ur.headers.get("Location", "")
-                    if _uloc:
-                        for _ui in range(30):
-                            time.sleep(2)
-                            _ulr = requests.get(_uloc, headers=headers)
-                            if _ulr.status_code == 200:
-                                break
-                print(f"  Definition updated")
-            else:
-                # Create new notebook
-                print("  NB_Deploy_Graph_Model not in workspace -- creating...")
-                _create_body = {
-                    "displayName": "NB_Deploy_Graph_Model",
-                    "type": "Notebook",
-                    "definition": {
-                        "format": "ipynb",
-                        "parts": _ipynb_parts
-                    }
-                }
-                _cr = requests.post(f"{API}/workspaces/{workspace_id}/items", headers=headers, json=_create_body)
-                if _cr.status_code in (200, 201):
-                    _nb_id = _cr.json().get("id")
-                    print(f"  Created: {_nb_id}")
-                elif _cr.status_code == 202:
-                    _loc = _cr.headers.get("Location", "")
-                    if _loc:
-                        for _li in range(30):
-                            time.sleep(3)
-                            _lr = requests.get(_loc, headers=headers)
-                            if _lr.status_code == 200:
-                                _lrb = _lr.json()
-                                if _lrb.get("status", "").lower() in ("succeeded", "completed"):
-                                    break
-                                elif _lrb.get("status", "").lower() in ("failed", "cancelled"):
-                                    break
-                    # Re-fetch to get ID
-                    _items_r2 = requests.get(f"{API}/workspaces/{workspace_id}/items?type=Notebook", headers=headers)
-                    if _items_r2.status_code == 200:
-                        for _it in _items_r2.json().get("value", []):
-                            if _it["displayName"] == "NB_Deploy_Graph_Model":
-                                _nb_id = _it["id"]
-                                break
-                    if _nb_id:
-                        print(f"  Created (async): {_nb_id}")
-                        # Push definition explicitly (Create + 202 may not apply inline def)
-                        _upd_body = {"definition": {"format": "ipynb", "parts": _ipynb_parts}}
-                        _ur = requests.post(f"{API}/workspaces/{workspace_id}/items/{_nb_id}/updateDefinition",
-                                            headers=headers, json=_upd_body)
-                        if _ur.status_code == 202:
-                            _uloc = _ur.headers.get("Location", "")
-                            if _uloc:
-                                for _ui in range(30):
-                                    time.sleep(2)
-                                    _ulr = requests.get(_uloc, headers=headers)
-                                    if _ulr.status_code == 200:
-                                        break
-                        print(f"  Definition pushed")
-                else:
-                    print(f"  [FAIL] Create notebook: HTTP {_cr.status_code} {_cr.text[:300]}")
-
-                if _nb_id:
-                    print("  Waiting 15s for Fabric to index the notebook...")
-                    time.sleep(15)
+    if not _nb_id:
+        print("  [WARN] NB_Deploy_Graph_Model not found in workspace --")
+        print("         ensure the full item set was deployed via the installer.")
 
     if _nb_id:
         print(f"  Running NB_Deploy_Graph_Model notebook...")
@@ -1170,8 +1050,8 @@ if ont_result == "[OK]":
                     print(f"         Open NB_Deploy_Graph_Model manually for detailed diagnostics")
     else:
         graph_st = "[FAIL]"
-        print(f"  [FAIL] Could not create NB_Deploy_Graph_Model in workspace")
-        print(f"         Deploy it manually from the workspace folder, then run it")
+        print(f"  [FAIL] NB_Deploy_Graph_Model not found in workspace")
+        print(f"         Ensure the full item set was deployed via the installer, then run it")
 
     print()
     print("=" * 60)
@@ -1197,12 +1077,12 @@ if ont_result == "[OK]":
 #   2. Runs NB_RTI_Setup_Eventhouse (creates KQL tables, discovers Kusto URI)
 #   3. Wires Eventstream full topology via API:
 #      Custom Endpoint → Stream → Eventhouse + Lakehouse + Activator
-#   4. Prints instruction: copy connection string from portal
+#   4. Enables OneLake availability reminder (one-time portal step)
 #
 # After this cell, the user:
-#   - Copies the connection string from the Eventstream portal
-#   - Pastes it into NB_RTI_Event_Simulator → ES_CONNECTION_STRING
-#   - Runs NB_RTI_Event_Simulator → events stream continuously
+#   - Enables OneLake availability on Healthcare_RTI_DB (one-time, in portal)
+#   - Runs the next cell — it auto-fetches the Eventstream connection string
+#     via REST API and runs NB_RTI_Event_Simulator → events stream continuously
 #   - Then runs scoring notebooks (Fraud, Care Gap, HighCost) on the live data
 # ============================================================================
 
@@ -1895,15 +1775,13 @@ if DEPLOY_STREAMING:
             print("  │    This exposes KQL tables as Delta in OneLake so scoring    │")
             print("  │    notebooks can read them via Spark.                        │")
             print("  │                                                              │")
-            print("  │  STEP B — Copy the Eventstream connection string             │")
-            print("  │    1. Open the Eventstream URL above in your browser         │")
-            print("  │    2. Click HealthcareCustomEndpoint → copy Conn String      │")
-            print("  │    3. Paste into the NEXT CELL → run it                      │")
+            print("  │  STEP B — Just run the NEXT CELL                             │")
+            print("  │    The connection string is now fetched automatically via    │")
+            print("  │    the Eventstream REST API — no portal copy/paste needed.    │")
+            print("  │    The next cell wires OneLake shortcuts + triggers the       │")
+            print("  │    PL_Healthcare_RTI pipeline (Simulator → Scoring).         │")
             print("  │                                                              │")
-            print("  │  That cell creates OneLake shortcuts + triggers the          │")
-            print("  │  PL_Healthcare_RTI pipeline (Simulator → Scoring).           │")
-            print("  │                                                              │")
-            print("  │  Two steps, then everything else is automatic.               │")
+            print("  │  One portal step (A), then everything else is automatic.     │")
             print("  └──────────────────────────────────────────────────────────────┘")
         else:
             print("  [WARN] Eventstream topology update failed — item may be empty.")
@@ -2091,9 +1969,9 @@ if DEPLOY_STREAMING:
 
     print()
     print("RTI deployment complete.")
-    print("  Eventstream topology wired — copy connection string to start streaming")
+    print("  Eventstream topology wired — run the next cell to start streaming")
     print()
-    print("  NEXT: Paste the connection string into the next cell and run it.")
+    print("  NEXT: Just run the next cell (connection string is auto-fetched).")
     print("  PL_Healthcare_RTI orchestrates: Simulator → Scoring (parallel)")
 
 else:
@@ -2125,25 +2003,51 @@ else:
 #   enabled because it negates the latency advantage that makes RTI valuable.
 # ============================================================================
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║                                                                                   ║
-# ║   ⚠️  ACTION REQUIRED — PASTE EVENTSTREAM CONNECTION STRING BELOW              ║
-# ║                                                                                   ║
-# ║   This is the ONLY manual step in the entire demo. Fabric does not expose         ║
-# ║   the Eventstream Custom Endpoint connection string via REST API, so it must     ║
-# ║   be copied from the portal.                                                      ║
-# ║                                                                                   ║
-# ║   1. Cell 7 already created the Eventstream + KQL Dashboard.                      ║
-# ║   2. Open the workspace in the Fabric portal.                                     ║
-# ║   3. Click into 'Healthcare_RTI_Eventstream'.                                     ║
-# ║   4. Click the 'HealthcareCustomEndpoint' source node → Details panel opens.      ║
-# ║   5. Copy the 'Connection string-primary key' value.                              ║
-# ║   6. Paste it between the quotes in ES_CONNECTION_STRING below.                   ║
-# ║   7. Re-run this cell.                                                            ║
-# ║                                                                                   ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# ============================================================================
+# CONNECTION STRING — auto-fetched from the Eventstream REST API
+# ============================================================================
+# Cell 7 wired the Eventstream (CustomEndpoint -> KQL / Lakehouse / Activator).
+# This cell fetches the CustomEndpoint connection string automatically via
+#   GET /eventstreams/{id}/sources/{sourceId}/connection
+# so no portal copy/paste is needed. To override (e.g. point the simulator at
+# a different endpoint), paste a value into ES_CONNECTION_STRING below.
+# ============================================================================
 
-ES_CONNECTION_STRING = ""   # ◀── PASTE EVENTSTREAM CONNECTION STRING HERE
+ES_CONNECTION_STRING = ""   # ◀── (optional) override; normally leave empty — auto-fetched below
+
+if DEPLOY_STREAMING and not ES_CONNECTION_STRING:
+    try:
+        import requests as _rq
+        _cs_token = notebookutils.credentials.getToken("pbi")
+        _cs_hdrs = {"Authorization": f"Bearer {_cs_token}"}
+        _cs_api = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
+        _es_item = next((i for i in _rq.get(f"{_cs_api}/items?type=Eventstream", headers=_cs_hdrs).json().get("value", [])
+                         if i["displayName"] == "Healthcare_RTI_Eventstream"), None)
+        if _es_item:
+            _topo_resp = _rq.get(f"{_cs_api}/eventstreams/{_es_item['id']}/topology", headers=_cs_hdrs)
+            if _topo_resp.status_code == 200:
+                _ce_src = next((s for s in _topo_resp.json().get("sources", [])
+                                if s.get("type") == "CustomEndpoint"), None)
+                if _ce_src:
+                    _conn_resp = _rq.get(
+                        f"{_cs_api}/eventstreams/{_es_item['id']}/sources/{_ce_src['id']}/connection",
+                        headers=_cs_hdrs)
+                    if _conn_resp.status_code == 200:
+                        ES_CONNECTION_STRING = _conn_resp.json().get("accessKeys", {}).get("primaryConnectionString", "")
+                        if ES_CONNECTION_STRING:
+                            print("  [OK] Auto-fetched Eventstream connection string via REST API")
+                        else:
+                            print("  [WARN] Connection API returned no primaryConnectionString")
+                    else:
+                        print(f"  [WARN] Connection API: HTTP {_conn_resp.status_code} {_conn_resp.text[:200]}")
+                else:
+                    print("  [WARN] No CustomEndpoint source found in Eventstream topology")
+            else:
+                print(f"  [WARN] Topology API: HTTP {_topo_resp.status_code}")
+        else:
+            print("  [WARN] Healthcare_RTI_Eventstream not found in workspace")
+    except Exception as _cs_err:
+        print(f"  [WARN] Could not auto-fetch connection string: {_cs_err}")
 
 if not DEPLOY_STREAMING:
     print("Skipping RTI streaming (DEPLOY_STREAMING=False)")
@@ -2151,9 +2055,9 @@ if not DEPLOY_STREAMING:
 
 elif not ES_CONNECTION_STRING:
     print("=" * 60)
-    print("  ES_CONNECTION_STRING is empty.")
+    print("  Could not obtain the Eventstream connection string automatically.")
     print()
-    print("  To get the connection string:")
+    print("  Fallback — fetch it manually:")
     print("  1. Open Healthcare_RTI_Eventstream in the Fabric portal")
     print("  2. Click the HealthcareCustomEndpoint source node")
     print("  3. Copy the Connection String")
