@@ -5,6 +5,30 @@
 # META {
 # META   "kernel_info": {
 # META     "name": "synapse_pyspark"
+# META   },
+# META   "dependencies": {
+# META     "lakehouse": {
+# META       "default_lakehouse": "a1000001-0001-0001-0001-000000000003",
+# META       "default_lakehouse_name": "lh_silver_ods",
+# META       "default_lakehouse_workspace_id": "00000000-0000-0000-0000-000000000000",
+# META       "known_lakehouses": [
+# META         {
+# META           "id": "a1000001-0001-0001-0001-000000000003",
+# META           "displayName": "lh_silver_ods",
+# META           "isDefault": true
+# META         },
+# META         {
+# META           "id": "a1000001-0001-0001-0001-000000000001",
+# META           "displayName": "lh_bronze_raw",
+# META           "isDefault": false
+# META         },
+# META         {
+# META           "id": "a1000001-0001-0001-0001-000000000002",
+# META           "displayName": "lh_silver_stage",
+# META           "isDefault": false
+# META         }
+# META       ]
+# META     }
 # META   }
 # META }
 
