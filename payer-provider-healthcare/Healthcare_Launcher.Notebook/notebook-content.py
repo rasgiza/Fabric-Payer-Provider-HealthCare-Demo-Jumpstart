@@ -1,8 +1,14 @@
 # Fabric notebook source
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "kernel_info": {
+# META     "name": "synapse_pyspark"
+# META   }
+# META }
+
+# MARKDOWN ********************
 
 # # Healthcare Payer & Provider Analytics — Launcher
 #
@@ -44,8 +50,6 @@
 
 # CELL ********************
 
-# META {"language":"python"}
-
 # ============================================================================
 # CONFIGURATION — Edit these values
 # ============================================================================
@@ -70,9 +74,14 @@ workspace_id = spark.conf.get("trident.workspace.id")
 print(f"Workspace: {workspace_id}")
 print(f"Source ref: github.com/{GITHUB_OWNER}/{GITHUB_REPO}@{GITHUB_BRANCH}")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # CELL 1 — Upload healthcare knowledge docs to lh_gold_curated
@@ -140,9 +149,14 @@ if UPLOAD_KNOWLEDGE_DOCS:
 else:
     print("Skipping knowledge doc upload (UPLOAD_KNOWLEDGE_DOCS=False)")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # CELL 2 — Generate synthetic data
@@ -169,9 +183,14 @@ if GENERATE_DATA:
 else:
     print("Skipping data generation (GENERATE_DATA=False)")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # CELL 3 — Run the full-load pipeline
@@ -256,9 +275,14 @@ else:
     print("Skipping pipeline run (RUN_PIPELINE=False)")
     print("To run manually: Open PL_Healthcare_Master → Run with load_mode=full")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # CELL 4 — Create & Refresh Semantic Model (Direct Lake)
@@ -584,9 +608,14 @@ else:
 
 print("=" * 60)
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # CELL 4b — Deploy Power BI Report (requires Semantic Model from Cell 4)
@@ -824,9 +853,14 @@ else:
 
 print("\n" + "=" * 60)
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # CELL 5 — Deploy Ontology & Graph Model
@@ -1459,9 +1493,14 @@ if ont_result == "[OK]":
     print(f"  GRAPH:       NB_Deploy_Graph_Model{' ':>16} {graph_st}")
     print("=" * 60)
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # CELL 6 — Patch Data Agent sources with real workspace artifact IDs
@@ -1646,9 +1685,14 @@ else:
 
 print("\nData Agent source patching complete.")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # CELL 7 — Deploy Real-Time Intelligence (RTI) streaming topology
@@ -2563,9 +2607,14 @@ else:
     print("Skipping RTI deployment (DEPLOY_STREAMING=False)")
     print("Set DEPLOY_STREAMING = True in the CONFIG cell to enable Eventhouse + scoring.")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # CELL 8 — Run RTI Streaming Pipeline (Eventstream → KQL → Scoring)
@@ -2779,9 +2828,14 @@ else:
     else:
         print("\n  KQL Database not found — cannot verify data or run scoring.")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # CELL 9 — Organize Workspace Items into Folders
@@ -3078,3 +3132,9 @@ if DEPLOY_STREAMING:
     print("     and configure the Eventstream Custom App connection string")
 print("=" * 60)
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }

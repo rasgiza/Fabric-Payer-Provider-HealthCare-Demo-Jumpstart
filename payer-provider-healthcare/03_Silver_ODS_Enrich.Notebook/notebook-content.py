@@ -1,8 +1,14 @@
 # Fabric notebook source
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "kernel_info": {
+# META     "name": "synapse_pyspark"
+# META   }
+# META }
+
+# MARKDOWN ********************
 
 # # Silver ODS: Enriched Operational Data Store
 # 
@@ -21,8 +27,6 @@
 # ```
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Configuration - use fully qualified table names for pipeline execution
 BRONZE = "lh_bronze_raw"
@@ -48,15 +52,18 @@ try:
 except Exception as e:
     print(f"Could not list tables: {e}")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## Load Reference Data from Bronze
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Load reference tables from Bronze
 ref_icd_codes = spark.sql(f"SELECT * FROM {BRONZE}.ref_icd_codes")
@@ -77,15 +84,18 @@ print(f"  Medications:  {ref_medications.count():,}")
 print("\nref_facilities columns:")
 ref_facilities.printSchema()
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## Load Cleaned Data from Silver Stage
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Load cleaned data from Silver Stage
 patients_clean = spark.sql(f"SELECT * FROM {SILVER_STAGE}.patients_clean")
@@ -114,15 +124,18 @@ print("prescriptions_clean columns:", prescriptions_clean.columns)
 print("encounters_clean columns:", encounters_clean.columns)
 print("claims_clean columns:", claims_clean.columns)
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 1. Enrich Patients
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Add age calculation and risk stratification
 patients_enriched = patients_clean \
@@ -147,15 +160,18 @@ patients_enriched.write \
 print(f"✓ {SILVER_ODS}.patients_enriched: {patients_enriched.count():,} rows")
 patients_enriched.groupBy("age_group").count().orderBy("age_group").show()
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 2. Enrich Providers
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Check if providers has facility_id column
 if "facility_id" in providers_clean.columns:
@@ -204,15 +220,18 @@ providers_enriched.write \
 
 print(f"✓ {SILVER_ODS}.providers_enriched: {providers_enriched.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 3. Enrich Encounters
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Start with encounters_clean
 encounters_enriched = encounters_clean
@@ -269,15 +288,18 @@ encounters_enriched.write \
 
 print(f"✓ {SILVER_ODS}.encounters_enriched: {encounters_enriched.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 4. Enrich Claims
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Start with claims_clean
 claims_enriched = claims_clean
@@ -322,15 +344,18 @@ claims_enriched.write \
 
 print(f"✓ {SILVER_ODS}.claims_enriched: {claims_enriched.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 5. Enrich Prescriptions
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Enrich prescriptions with medication reference data and provider info
 prescriptions_enriched = prescriptions_clean
@@ -378,15 +403,18 @@ prescriptions_enriched.write \
 
 print(f"✓ {SILVER_ODS}.prescriptions_enriched: {prescriptions_enriched.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 6. Enrich Diagnoses
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Enrich diagnoses with ICD code descriptions and encounter context
 diagnoses_enriched = diagnoses_clean
@@ -432,15 +460,18 @@ diagnoses_enriched.write \
 
 print(f"✓ {SILVER_ODS}.diagnoses_enriched: {diagnoses_enriched.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 7. Verify ODS Tables
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("="*60)
 print("SILVER ODS PROCESSING COMPLETE")
@@ -467,3 +498,9 @@ except Exception as e:
 
 print(f"\n✅ Processing completed at: {datetime.now()}")
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }

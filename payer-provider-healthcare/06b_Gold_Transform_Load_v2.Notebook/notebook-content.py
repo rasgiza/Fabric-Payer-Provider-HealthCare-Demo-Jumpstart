@@ -1,8 +1,14 @@
 # Fabric notebook source
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "kernel_info": {
+# META     "name": "synapse_pyspark"
+# META   }
+# META }
+
+# MARKDOWN ********************
 
 # # Gold Layer Transform & Load (Production)
 # 
@@ -38,8 +44,6 @@
 # ```
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # ============================================================
 # IMPORTS & CONFIGURATION
@@ -87,15 +91,18 @@ print(f"   Mode: {load_mode.upper()}")
 if IS_FULL:
     print("   ⚠️ FULL mode: all Gold tables will be dropped and rebuilt")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## Helper Functions
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # ============================================================
 # HELPER: Check if Delta table exists
@@ -175,15 +182,18 @@ def assign_keys(df_source, gold_table, surrogate_key, business_key):
 
 print("✓ Helper functions loaded")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 1. dim_date (Type 1 — Generate)
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("=" * 60)
 print("1. Loading dim_date")
@@ -223,9 +233,14 @@ else:
     df_dim_date.write.format("delta").mode("overwrite").saveAsTable(f"{GOLD}.dim_date")
     print(f"   ✓ dim_date: {df_dim_date.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 2. dim_patient (SCD Type 2)
 # 
@@ -237,8 +252,6 @@ else:
 # 3. New + changed rows → INSERT with `max_key + ROW_NUMBER()`
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("=" * 60)
 print("2. Loading dim_patient (SCD Type 2)")
@@ -361,17 +374,20 @@ else:
     current = spark.table(PATIENT_TABLE).filter("is_current = 1").count()
     print(f"   Total rows: {total:,} (current: {current:,}, historical: {total - current:,})")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 3. dim_provider (SCD Type 2)
 # 
 # Tracks changes to: specialty, department, facility_name
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("=" * 60)
 print("3. Loading dim_provider (SCD Type 2)")
@@ -469,15 +485,18 @@ else:
     current = spark.table(PROVIDER_TABLE).filter("is_current = 1").count()
     print(f"   Total rows: {total:,} (current: {current:,}, historical: {total - current:,})")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 4. dim_payer (Type 1 — Stable Keys)
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("=" * 60)
 print("4. Loading dim_payer (Type 1)")
@@ -528,17 +547,20 @@ df_payer_final.write.format("delta").mode("overwrite") \
 
 print(f"   ✓ dim_payer: {spark.table(PAYER_TABLE).count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 5. dim_facility (Type 1 — Stable Keys)
 # 
 # Facility dimension enables multi-site comparisons (denial rate by facility, readmission rate by campus, etc.)
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # ── dim_facility ──────────────────────────────────────────
 from pyspark.sql.functions import col, lit, monotonically_increasing_id, row_number
@@ -583,23 +605,24 @@ df_facility.write.format("delta").mode("overwrite") \
 print(f"   ✓ dim_facility: {spark.table(FACILITY_TABLE).count():,} facilities loaded")
 df_facility.show(truncate=False)
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 5b. dim_medication (Type 1 - Reference Data)
 
 # MARKDOWN ********************
-
-# META {"language":"markdown"}
 
 # ## 5a. dim_monitor (Type 1 — Device Reference Data)
 # 
 # Monitoring device dimension for the Ontology PatientMonitor entity. Static data binding from `monitors.csv`. Time series vitals bind separately from Eventhouse.
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # ── dim_monitor ──────────────────────────────────────────
 # Ontology PatientMonitor entity — static device data
@@ -743,9 +766,14 @@ print(f"   ✓ dim_monitor: {mon_count:,} devices across {facilities} facilities
 print(f"      Ontology entity: PatientMonitor (static binding → dim_monitor)")
 print(f"      Time series binding → Eventhouse VitalsTelemetry (configured separately)")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ── dim_medication ──────────────────────────────────────────
 print("=" * 60)
@@ -811,17 +839,20 @@ print(f"      Chronic meds: {df_medication.filter('is_chronic = 1').count()}")
 print(f"      Acute meds:   {df_medication.filter('is_chronic = 0').count()}")
 print(f"      Acute meds:   {df_medication.filter('is_chronic = false').count()}")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 5c. dim_diagnosis (Type 1 - ICD Code Reference)
 # 
 # Maps ICD-10 codes to categories, chronic flags, and descriptions. Sourced from icd_codes reference table in Bronze.
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # ── dim_diagnosis ──────────────────────────────────────────
 print("=" * 60)
@@ -874,17 +905,20 @@ print(f"      Chronic: {df_diagnosis.filter('is_chronic = 1').count()}")
 print(f"      Acute:   {df_diagnosis.filter('is_chronic = 0').count()}")
 print(f"      Acute:   {df_diagnosis.filter('is_chronic = false').count()}")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 5d. dim_sdoh (Type 1 - Social Determinants of Health)
 # 
 # Zip-code level social determinant data: poverty rate, food desert flag, transportation score, housing instability. Links to `dim_patient.zip_code` for the Social Factors pillar of the IQ chain.
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # ── dim_sdoh ──────────────────────────────────────────
 import builtins as _bi
@@ -992,9 +1026,14 @@ print(f"      High risk: {high_risk}")
 print(f"      Food deserts: {food_deserts}")
 print(f"      Links to: dim_patient.zip_code")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 6. fact_encounter (MERGE with Dim Lookups)
 # 
@@ -1003,8 +1042,6 @@ print(f"      Links to: dim_patient.zip_code")
 # - MERGE with Delta: update existing, insert new
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("=" * 60)
 print("6. Loading fact_encounter")
@@ -1098,17 +1135,20 @@ else:
     dt = DeltaTable.forName(spark, ENCOUNTER_TABLE)
     upd = {c: col(f"s.{c}") for c in df_enc_keyed.columns if c != "encounter_key"}
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 7. fact_claim (MERGE with Dim + Encounter Lookups)
 # 
 # Links claims to encounters, patients, providers, payers, and facilities.
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("=" * 60)
 print("7. Loading fact_claim")
@@ -1267,15 +1307,18 @@ else:
          .execute()
         print(f"   ✓ Merged: {spark.table(CLAIM_TABLE).count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 7b. fact_prescription (Medication Fills + Adherence Tracking)
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("=" * 60)
 print("7b. Loading fact_prescription")
@@ -1400,17 +1443,20 @@ if df_prescriptions is not None:
 else:
     print("   ⏭️ Skipped fact_prescription (no source data)")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 7c. fact_diagnosis (Encounter → ICD Code Linkage)
 # 
 # Links encounters to diagnoses with sequence numbers (principal + secondary). Enables the Conditions pillar: Member → Conditions → Claims.
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # ── fact_diagnosis ──────────────────────────────────────────
 print("=" * 60)
@@ -1478,15 +1524,18 @@ if df_dx is not None:
     print(f"      Secondary: {secondary:,}")
     print(f"      Unique ICD codes: {df_fact_dx.select('icd_code').distinct().count()}")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 8. Aggregate Tables (Full Rebuild)
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("=" * 60)
 print("7. Loading aggregate tables")
@@ -1560,15 +1609,18 @@ df_agg_denial_payer.write.format("delta").mode("overwrite") \
     .saveAsTable(f"{GOLD}.agg_denial_by_payer")
 print(f"   ✓ agg_denial_by_payer: {df_agg_denial_payer.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 8b. Medication Adherence Aggregate (PDC - Proportion of Days Covered)
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # ── agg_medication_adherence ──────────────────────────────────
 # PDC (Proportion of Days Covered) = industry standard adherence metric
@@ -1688,15 +1740,18 @@ try:
 except Exception as e:
     print(f"   ⚠️ Medication adherence aggregate skipped: {str(e)[:80]}")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 9. Validation
 
 # CELL ********************
-
-# META {"language":"python"}
 
 import builtins
 
@@ -1826,16 +1881,19 @@ print(f"Fact Loading:   {'OVERWRITE (full rebuild)' if IS_FULL else 'Delta MERGE
 print("\nIQ Payer Chain: Member → Conditions → Claims → Providers → Utilization → Social Factors ✅")
 print("\nNext: Refresh Semantic Model → Test Data Agent")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 10. Readmission Risk Score Diagnostic
 # Quick check that encounter-level risk scores flowed through correctly from the CSV data.
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # ============================================================
 # DIAGNOSTIC: Readmission Risk Score Validation
@@ -1970,3 +2028,9 @@ print("\n" + "=" * 70)
 print("END DIAGNOSTIC")
 print("=" * 70)
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }

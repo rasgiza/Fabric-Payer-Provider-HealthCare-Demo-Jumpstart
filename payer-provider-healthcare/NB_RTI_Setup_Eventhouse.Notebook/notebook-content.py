@@ -1,8 +1,14 @@
 # Fabric notebook source
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "kernel_info": {
+# META     "name": "synapse_pyspark"
+# META   }
+# META }
+
+# MARKDOWN ********************
 
 # # RTI Post-Deploy Setup
 # 
@@ -31,8 +37,6 @@
 
 # CELL ********************
 
-# META {"language":"python"}
-
 # ============================================================================
 # NB_RTI_Setup_Eventhouse -- Post-Deploy Wiring
 # ============================================================================
@@ -46,18 +50,28 @@
 
 print("NB_RTI_Setup_Eventhouse: Starting post-deploy setup...")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Parameters ----------
 WORKSPACE_ID = ""                               # Auto-detected if blank
 EVENTHOUSE_NAME = "Healthcare_RTI_Eventhouse"    # Must match Git artifact displayName
 KQL_DB_NAME = "Healthcare_RTI_DB"                # Must match Git artifact displayName
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 import requests
 import json
@@ -86,9 +100,14 @@ if not WORKSPACE_ID:
 
 print(f"Workspace ID: {WORKSPACE_ID}")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Step 1: Discover Eventhouse + KQL Database by displayName
@@ -132,9 +151,14 @@ if not kql_db:
 kql_db_id = kql_db["id"]
 print(f"  KQL Database: {KQL_DB_NAME} ({kql_db_id})")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Step 2: Discover Kusto ingestion URI
@@ -178,9 +202,14 @@ else:
     print("  WARN: Could not discover Kusto URIs -- Kusto ingestion will be skipped")
     print("  KQL tables will still be created for manual use")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Step 3: Execute KQL schema -- create tables + streaming policies + mappings
@@ -410,9 +439,14 @@ for cmd in KQL_COMMANDS:
 
 print(f"\nSchema execution complete: {success_count} succeeded, {fail_count} failed")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Step 3b: Backfill typed tables from existing rti_all_events data
@@ -462,9 +496,14 @@ if _landing_count > 0:
 else:
     print("  rti_all_events is empty — no backfill needed (data will flow via update policies)")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Step 4: Verify setup
@@ -479,9 +518,14 @@ try:
 except Exception as e:
     print(f"  Could not verify tables: {str(e)[:200]}")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Step 5: Store Kusto URIs for downstream notebooks
@@ -503,9 +547,14 @@ kusto_config = {
 # Store as notebook output for downstream consumption
 notebookutils.notebook.exit(json.dumps(kusto_config))
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Summary ----------
 print("\n" + "=" * 70)
@@ -536,3 +585,9 @@ print("    5. For live streaming: set MODE='stream' in Event Simulator")
 print("       (uses direct Kusto ingestion -- no manual config needed)")
 print("=" * 70)
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
