@@ -74,18 +74,30 @@ GENERATE_DATA         = True   # Run NB_Generate_Sample_Data to populate lh_bron
 RUN_PIPELINE          = True   # Run PL_Healthcare_Master end-to-end (full-load)
 DEPLOY_STREAMING      = True   # Wire RTI Eventstream topology, deploy KQL Dashboard, run scoring notebooks
 
-# ----------------------------------------------------------------------------
-# Source location (advanced) — leave as-is unless you deployed from a fork.
-# Used only as a runtime fallback when the ontology/SM cells fetch their
-# definition files directly from the public repo.
+# Resolve the workspace_id at runtime (set automatically by Fabric)
+workspace_id = spark.conf.get("trident.workspace.id")
+print(f"Workspace: {workspace_id}")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# ============================================================================
+# INTERNAL CONSTANTS — do not edit
+# ============================================================================
+# Source location for the runtime fallback used only if the ontology / Semantic
+# Model cells need to fetch their definition files directly from the public
+# repo. These are fixed constants, not user configuration — override only if you
+# deployed from a fork.
 # ----------------------------------------------------------------------------
 GITHUB_OWNER  = "rasgiza"
 GITHUB_REPO   = "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart"
 GITHUB_BRANCH = "main"
-
-# Resolve the workspace_id at runtime (set automatically by Fabric)
-workspace_id = spark.conf.get("trident.workspace.id")
-print(f"Workspace: {workspace_id}")
 print(f"Source ref: github.com/{GITHUB_OWNER}/{GITHUB_REPO}@{GITHUB_BRANCH}")
 
 # METADATA ********************
