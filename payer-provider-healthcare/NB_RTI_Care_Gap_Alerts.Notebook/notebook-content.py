@@ -1,8 +1,28 @@
 # Fabric notebook source
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "kernel_info": {
+# META     "name": "synapse_pyspark"
+# META   },
+# META   "dependencies": {
+# META     "lakehouse": {
+# META       "default_lakehouse": "a1000001-0001-0001-0001-000000000004",
+# META       "default_lakehouse_name": "lh_gold_curated",
+# META       "default_lakehouse_workspace_id": "00000000-0000-0000-0000-000000000000",
+# META       "known_lakehouses": [
+# META         {
+# META           "id": "a1000001-0001-0001-0001-000000000004",
+# META           "displayName": "lh_gold_curated",
+# META           "isDefault": true
+# META         }
+# META       ]
+# META     }
+# META   }
+# META }
+
+# MARKDOWN ********************
 
 # # RTI Use Case 2: Care Gap Closure at Point of Care
 # 
@@ -22,8 +42,6 @@
 
 # CELL ********************
 
-# META {"language":"python"}
-
 # ============================================================================
 # NB_RTI_Care_Gap_Alerts
 # ============================================================================
@@ -35,9 +53,14 @@
 
 print("NB_RTI_Care_Gap_Alerts: Starting...")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Attach default lakehouse (self-healing) ----------
 import requests as _req
@@ -109,22 +132,37 @@ else:
     print(f"  WARNING: Could not list lakehouses (HTTP {_lh_resp.status_code})")
 del _req, _ws_id, _tok, _hdr, _lh_resp
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 %pip install azure-kusto-data azure-kusto-ingest azure-core>=1.31.0 --quiet
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Load data ----------
 print("Loading ADT events from KQL Eventhouse (Kusto SDK)...")
@@ -295,9 +333,14 @@ except Exception:
 print(f"  ADT events: {df_adt.count()}")
 print(f"  Patients: {df_patients.count()}")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Care Gap Alert Logic
@@ -315,9 +358,14 @@ df_open_gaps = df_care_gaps.filter(F.col("is_gap_open") == "true")
 print(f"  Actionable encounters (ADMIT/OBSERVATION): {df_encounters.count()}")
 print(f"  Open care gaps: {df_open_gaps.count()}")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Join encounters with open care gaps ----------
 df_alerts = (
@@ -354,9 +402,14 @@ else:
 
 print(f"  Patient-encounter-gap matches: {df_alerts.count()}")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Priority Ranking and Alert Generation
@@ -430,9 +483,14 @@ df_output.write.format("delta").mode("overwrite").saveAsTable("lh_gold_curated.r
 alert_count = df_output.count()
 print(f"Care gap alerts written: {alert_count}")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Push Care Gap Alerts to KQL (direct Kusto ingestion)
@@ -518,9 +576,14 @@ if _KUSTO_QUERY_URI and _KUSTO_INGEST_URI:
 else:
     print("  KQL: Eventhouse not found -- skipping KQL ingestion (Delta table still written)")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Summary Statistics
@@ -583,3 +646,9 @@ df_by_facility.show(truncate=False)
 print("\nNB_RTI_Care_Gap_Alerts: COMPLETE")
 print("=" * 60)
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }

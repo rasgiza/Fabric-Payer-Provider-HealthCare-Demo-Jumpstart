@@ -1,0 +1,37 @@
+# fabric-cicd parameterization for the Payer & Provider Healthcare Jumpstart.
+#
+# Most cross-item references in this workspace use each item's `.platform`
+# logicalId (e.g. a1000001-0001-0001-0001-00000000000x for the lakehouses,
+# b2000002-... for notebooks, c3000003-... for pipelines). fabric-cicd's
+# `_replace_logical_ids` automatically rewrites those to the deployed item GUIDs,
+# and `_replace_workspace_ids` rewrites the placeholder workspace GUID
+# (00000000-0000-0000-0000-000000000000) found in `workspaceId` /
+# `default_lakehouse_workspace_id` keys. Those references therefore need no
+# rules here.
+#
+# This file only covers the two references that the automatic mechanisms cannot
+# resolve on their own.
+find_replace:
+  # 1. Direct Lake source for the HealthcareDemoHLS semantic model.
+  #    expressions.tmdl points at:
+  #      onelake.dfs.fabric.microsoft.com/<workspaceId>/<lakehouseId>
+  #    In the repo both path segments hold the lh_gold_curated logicalId, so
+  #    `_replace_logical_ids` rewrites BOTH to the gold lakehouse GUID — leaving
+  #    the workspace segment wrong. This rule runs after logical-id replacement
+  #    and rewrites only the first (workspace) path segment to the target
+  #    workspace ID. The captured group (group 1) is the only part replaced.
+  - find_value: 'onelake\.dfs\.fabric\.microsoft\.com/([0-9a-fA-F-]{36})/[0-9a-fA-F-]{36}'
+    is_regex: "true"
+    item_type: "SemanticModel"
+    item_name: "HealthcareDemoHLS"
+    replace_value:
+      _ALL_: "$workspace.$id"
+
+  # 2. HealthcareHLSAgent Data Agent — semantic_model datasource binding.
+  #    Its datasource.json carries a placeholder artifactId that is neither an
+  #    item logicalId nor the default workspace GUID, so it is not auto-resolved.
+  #    Bind it to the deployed HealthcareDemoHLS semantic model.
+  - find_value: "00000000-0000-0000-0000-000000000003"
+    item_type: "DataAgent"
+    replace_value:
+      _ALL_: "$items.SemanticModel.HealthcareDemoHLS.$id"

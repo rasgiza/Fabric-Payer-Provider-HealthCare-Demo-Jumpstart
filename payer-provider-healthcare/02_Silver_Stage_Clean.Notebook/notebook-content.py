@@ -1,8 +1,33 @@
 # Fabric notebook source
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "kernel_info": {
+# META     "name": "synapse_pyspark"
+# META   },
+# META   "dependencies": {
+# META     "lakehouse": {
+# META       "default_lakehouse": "a1000001-0001-0001-0001-000000000002",
+# META       "default_lakehouse_name": "lh_silver_stage",
+# META       "default_lakehouse_workspace_id": "00000000-0000-0000-0000-000000000000",
+# META       "known_lakehouses": [
+# META         {
+# META           "id": "a1000001-0001-0001-0001-000000000002",
+# META           "displayName": "lh_silver_stage",
+# META           "isDefault": true
+# META         },
+# META         {
+# META           "id": "a1000001-0001-0001-0001-000000000001",
+# META           "displayName": "lh_bronze_raw",
+# META           "isDefault": false
+# META         }
+# META       ]
+# META     }
+# META   }
+# META }
+
+# MARKDOWN ********************
 
 # # Silver Stage: Data Cleaning and Validation
 # 
@@ -24,8 +49,6 @@
 # lh_bronze_raw.diagnoses_raw     →  diagnoses_clean (default)```
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Configuration - use fully qualified table names for pipeline execution
 # In Fabric, tables are in lakehouse.table format
@@ -53,15 +76,18 @@ try:
 except Exception as e:
     print(f"Could not list tables: {e}")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 1. Clean Patients Data
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Read from Bronze using fully qualified table name
 patients_raw = spark.sql(f"SELECT * FROM {BRONZE_SCHEMA}.patients_raw")
@@ -93,15 +119,18 @@ patients_clean.write \
 
 print(f"✓ {SILVER_SCHEMA}.patients_clean: {patients_clean.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 2. Clean Providers Data
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Read from Bronze
 providers_raw = spark.sql(f"SELECT * FROM {BRONZE_SCHEMA}.providers_raw")
@@ -129,15 +158,18 @@ providers_clean.write \
 
 print(f"✓ {SILVER_SCHEMA}.providers_clean: {providers_clean.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 3. Clean Encounters Data
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Read from Bronze
 encounters_raw = spark.sql(f"SELECT * FROM {BRONZE_SCHEMA}.encounters_raw")
@@ -170,15 +202,18 @@ encounters_clean.write \
 
 print(f"✓ {SILVER_SCHEMA}.encounters_clean: {encounters_clean.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 4. Clean Claims Data
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Read from Bronze
 claims_raw = spark.sql(f"SELECT * FROM {BRONZE_SCHEMA}.claims_raw")
@@ -207,15 +242,18 @@ claims_clean.write \
 
 print(f"✓ {SILVER_SCHEMA}.claims_clean: {claims_clean.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 5. Clean Prescriptions Data
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Read from Bronze
 prescriptions_raw = spark.sql(f"SELECT * FROM {BRONZE_SCHEMA}.prescriptions_raw")
@@ -244,15 +282,18 @@ prescriptions_clean.write \
 
 print(f"✓ {SILVER_SCHEMA}.prescriptions_clean: {prescriptions_clean.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 6. Clean Diagnoses Data
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Read from Bronze
 diagnoses_raw = spark.sql(f"SELECT * FROM {BRONZE_SCHEMA}.diagnoses_raw")
@@ -278,15 +319,18 @@ diagnoses_clean.write \
 
 print(f"✓ {SILVER_SCHEMA}.diagnoses_clean: {diagnoses_clean.count():,} rows")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 7. Verify Silver Tables
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("="*60)
 print("SILVER STAGE PROCESSING COMPLETE")
@@ -313,3 +357,9 @@ except Exception as e:
 
 print(f"\n✅ Processing completed at: {datetime.now()}")
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }

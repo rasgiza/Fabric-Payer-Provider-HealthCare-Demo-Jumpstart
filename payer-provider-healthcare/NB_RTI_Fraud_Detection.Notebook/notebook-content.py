@@ -1,8 +1,28 @@
 # Fabric notebook source
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "kernel_info": {
+# META     "name": "synapse_pyspark"
+# META   },
+# META   "dependencies": {
+# META     "lakehouse": {
+# META       "default_lakehouse": "a1000001-0001-0001-0001-000000000004",
+# META       "default_lakehouse_name": "lh_gold_curated",
+# META       "default_lakehouse_workspace_id": "00000000-0000-0000-0000-000000000000",
+# META       "known_lakehouses": [
+# META         {
+# META           "id": "a1000001-0001-0001-0001-000000000004",
+# META           "displayName": "lh_gold_curated",
+# META           "isDefault": true
+# META         }
+# META       ]
+# META     }
+# META   }
+# META }
+
+# MARKDOWN ********************
 
 # # RTI Use Case 1: Claims Fraud Detection
 # 
@@ -20,8 +40,6 @@
 
 # CELL ********************
 
-# META {"language":"python"}
-
 # ============================================================================
 # NB_RTI_Fraud_Detection
 # ============================================================================
@@ -34,9 +52,14 @@
 
 print("NB_RTI_Fraud_Detection: Starting...")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Attach default lakehouse (self-healing) ----------
 import requests as _req
@@ -97,24 +120,39 @@ else:
     print(f"  WARNING: Could not list lakehouses (HTTP {_lh_resp.status_code})")
 del _req, _ws_id, _tok, _hdr, _lh_resp
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 %pip install azure-kusto-data azure-kusto-ingest azure-core>=1.31.0 --quiet
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.types import DoubleType, StringType, ArrayType
 import math
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Load events and reference data ----------
 print("Loading claims events from KQL Eventhouse (Kusto SDK)...")
@@ -274,9 +312,14 @@ print(f"  Claims events: {df_claims.count()}")
 print(f"  Providers: {df_providers.count()}")
 print(f"  Historical baselines: {df_historical.count()}")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Fraud Scoring Rules
@@ -356,9 +399,14 @@ df_scored = df_scored.withColumn(
 
 print("Scoring rules applied.")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Composite Score and Risk Tiers
@@ -427,9 +475,14 @@ df_output.write.format("delta").mode("overwrite").saveAsTable("lh_gold_curated.r
 
 print(f"Fraud scores written: {df_output.count()} claims scored")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Push Fraud Scores to KQL (direct Kusto ingestion)
@@ -515,9 +568,14 @@ if KUSTO_QUERY_URI and KUSTO_INGEST_URI:
 else:
     print("  KQL: Eventhouse not found -- skipping KQL ingestion (Delta table still written)")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Summary Statistics
@@ -569,3 +627,9 @@ df_top_providers.show(truncate=False)
 print("NB_RTI_Fraud_Detection: COMPLETE")
 print("=" * 60)
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }

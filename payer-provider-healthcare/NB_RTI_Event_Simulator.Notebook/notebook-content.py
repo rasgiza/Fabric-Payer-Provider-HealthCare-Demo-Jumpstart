@@ -1,8 +1,28 @@
 # Fabric notebook source
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "kernel_info": {
+# META     "name": "synapse_pyspark"
+# META   },
+# META   "dependencies": {
+# META     "lakehouse": {
+# META       "default_lakehouse": "a1000001-0001-0001-0001-000000000004",
+# META       "default_lakehouse_name": "lh_gold_curated",
+# META       "default_lakehouse_workspace_id": "00000000-0000-0000-0000-000000000000",
+# META       "known_lakehouses": [
+# META         {
+# META           "id": "a1000001-0001-0001-0001-000000000004",
+# META           "displayName": "lh_gold_curated",
+# META           "isDefault": true
+# META         }
+# META       ]
+# META     }
+# META   }
+# META }
+
+# MARKDOWN ********************
 
 # # RTI Event Simulator — Streaming Healthcare Events
 # 
@@ -28,8 +48,6 @@
 
 # CELL ********************
 
-# META {"language":"python"}
-
 # ============================================================================
 # NB_RTI_Event_Simulator
 # ============================================================================
@@ -46,9 +64,14 @@
 
 print("NB_RTI_Event_Simulator: Starting...")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Attach default lakehouse (self-healing) ----------
 # When run via notebookutils.notebook.run(), the child notebook may not
@@ -112,15 +135,25 @@ else:
     print(f"  WARNING: Could not list lakehouses (HTTP {_lh_resp.status_code})")
 del _req, _ws_id, _tok, _hdr, _lh_resp
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 %pip install azure-eventhub azure-core>=1.31.0 --quiet
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Parameters (override from pipeline or %run) ----------
 BATCH_SIZE = 500         # events per streaming batch
@@ -139,9 +172,14 @@ STREAM_BATCHES = STREAM_BATCHES if "STREAM_BATCHES" in dir() and STREAM_BATCHES 
 # └─────────────────────────────────────────────────────────────────┘
 ES_CONNECTION_STRING = ES_CONNECTION_STRING if "ES_CONNECTION_STRING" in dir() and ES_CONNECTION_STRING else ""
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 import pandas as pd
 import numpy as np
@@ -153,9 +191,14 @@ import requests
 
 np.random.seed(None)  # Truly random for each run
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Connect to Eventstream (primary) + KQL Eventhouse (verification) ----------
 #
@@ -211,9 +254,14 @@ if not _es_producer:
     print("  Set ES_CONNECTION_STRING and re-run this notebook.")
     print("="*60)
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- KQL Query (verification only) ----------
 # Used after streaming to confirm data landed in Eventhouse via Eventstream.
@@ -268,9 +316,14 @@ def push_to_eventstream(df_pandas, table_name):
         print(f"  Eventstream ERROR: {table_name} push failed: {e}")
         return False
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Load dimension/fact data from Gold lakehouse ----------
 print("Loading dimension tables from lh_gold_curated...")
@@ -292,9 +345,14 @@ except Exception:
 print(f"  Patients: {len(df_patients)}, Providers: {len(df_providers)}, Facilities: {len(df_facilities)}")
 print(f"  Diagnoses: {len(df_diagnoses)}, Medications: {len(df_medications)}, Payers: {len(df_payers)}")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Reference data for realistic event generation ----------
 
@@ -320,9 +378,14 @@ FRAUD_PATTERNS = {
     "upcoding": 0.03,
 }
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Event Generator Functions
@@ -475,9 +538,14 @@ def generate_rx_events(n: int) -> pd.DataFrame:
 
 print("Event generators ready.")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ============================================================================
 # Stream Events — Eventstream primary path
@@ -536,9 +604,14 @@ else:
 
     print(f"\nStreaming complete — {batch_num} batches pushed via Eventstream.")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # ---------- Summary ----------
 print("\n" + "=" * 60)
@@ -559,3 +632,9 @@ print()
 print("Re-run this notebook anytime to generate more streaming events.")
 print("=" * 60)
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }

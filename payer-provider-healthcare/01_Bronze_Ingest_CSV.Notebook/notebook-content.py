@@ -1,8 +1,28 @@
 # Fabric notebook source
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "kernel_info": {
+# META     "name": "synapse_pyspark"
+# META   },
+# META   "dependencies": {
+# META     "lakehouse": {
+# META       "default_lakehouse": "a1000001-0001-0001-0001-000000000001",
+# META       "default_lakehouse_name": "lh_bronze_raw",
+# META       "default_lakehouse_workspace_id": "00000000-0000-0000-0000-000000000000",
+# META       "known_lakehouses": [
+# META         {
+# META           "id": "a1000001-0001-0001-0001-000000000001",
+# META           "displayName": "lh_bronze_raw",
+# META           "isDefault": true
+# META         }
+# META       ]
+# META     }
+# META   }
+# META }
+
+# MARKDOWN ********************
 
 # # Bronze Layer - Data Ingest (CSV Source)
 # 
@@ -22,8 +42,6 @@
 # - `load_mode` - "full" or "incremental" (default: full)
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Configuration and imports
 from pyspark.sql import SparkSession
@@ -52,9 +70,14 @@ print(f"Bronze CSV Ingest started at: {datetime.now()}")
 print(f"Target: {BRONZE_SCHEMA}")
 print(f"Source: {SOURCE_FILES_PATH}")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # Get parameters from pipeline (or use defaults for manual run)
 try:
@@ -79,17 +102,20 @@ else:
     print("→ Will read incremental CSVs from Files/incremental/")
     print("→ Will append new rows to existing Bronze tables")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## Table Configuration
 # 
 # Define the transactional and reference tables to load from CSV files.
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Table configuration
 # Each table has:
@@ -126,15 +152,18 @@ print(f"Transactional tables ({len(TRANSACTIONAL_TABLES)}): {[t['name'] for t in
 print(f"Reference tables     ({len(REFERENCE_TABLES)}): {[t['name'] for t in REFERENCE_TABLES]}")
 print(f"Total tables to process: {len(TABLES_CONFIG)}")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## Helper Functions
 
 # CELL ********************
-
-# META {"language":"python"}
 
 def load_full_csv(table_config):
     """
@@ -299,17 +328,20 @@ def save_to_bronze(df, table_name, mode="overwrite", table_config=None):
 
     return spark.sql(f"SELECT COUNT(*) as cnt FROM {full_table_name}").collect()[0]["cnt"]
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## Verify Source Files
 # 
 # Check that CSV files are available in Files/ before processing.
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Verify source files are available
 print(f"\nChecking source files ({load_mode} mode)...")
@@ -376,17 +408,20 @@ except Exception as e:
     print("Make sure lh_bronze_raw is set as the default lakehouse for this notebook.")
     available_files = []
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## Process Tables
 # 
 # Read each CSV file and write to Bronze Delta tables.
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Process all tables based on load_mode
 results = []
@@ -436,9 +471,14 @@ for table_config in TABLES_CONFIG:
             "error": str(e)
         })
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## Archive Processed Incremental Files
 # 
@@ -447,8 +487,6 @@ for table_config in TABLES_CONFIG:
 # Full-load mode skips this step (it overwrites tables anyway).
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # ============================================================================
 # Archive incremental files after processing
@@ -502,17 +540,20 @@ if load_mode == "incremental":
 else:
     print("Full load mode — archiving skipped (tables were overwritten)")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## Verify Loaded Data
 # 
 # Quick check of record counts in Bronze tables.
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Verify data in Bronze tables
 print("\nVerifying Bronze tables:")
@@ -528,15 +569,18 @@ for table_config in TABLES_CONFIG:
     except Exception as e:
         print(f"  {tbl}: Error - {e}")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## Summary
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Print summary
 print("\n" + "="*60)
@@ -567,3 +611,9 @@ print(f"Completed at: {datetime.now()}")
 exit_message = f"csv_{load_mode}:{total_records}"
 mssparkutils.notebook.exit(exit_message)
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }

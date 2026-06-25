@@ -1,8 +1,28 @@
 # Fabric notebook source
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "kernel_info": {
+# META     "name": "synapse_pyspark"
+# META   },
+# META   "dependencies": {
+# META     "lakehouse": {
+# META       "default_lakehouse": "a1000001-0001-0001-0001-000000000004",
+# META       "default_lakehouse_name": "lh_gold_curated",
+# META       "default_lakehouse_workspace_id": "00000000-0000-0000-0000-000000000000",
+# META       "known_lakehouses": [
+# META         {
+# META           "id": "a1000001-0001-0001-0001-000000000004",
+# META           "displayName": "lh_gold_curated",
+# META           "isDefault": true
+# META         }
+# META       ]
+# META     }
+# META   }
+# META }
+
+# MARKDOWN ********************
 
 # # 🏆 Create Gold Lakehouse Tables
 # 
@@ -32,8 +52,6 @@
 
 # CELL ********************
 
-# META {"language":"python"}
-
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
 from datetime import datetime
@@ -41,15 +59,18 @@ from datetime import datetime
 spark = SparkSession.builder.getOrCreate()
 print(f"Creating Gold Lakehouse tables at: {datetime.now()}")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 1. ETL Process Log
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # Process log table for monitoring ETL
 spark.sql("""
@@ -64,15 +85,18 @@ spark.sql("""
 """)
 print("✓ etl_process_log created")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 2. Dimension Tables
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # dim_date
 spark.sql("""
@@ -97,9 +121,14 @@ spark.sql("""
 """)
 print("✓ dim_date created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # dim_patient (SCD Type 2)
 spark.sql("""
@@ -131,9 +160,14 @@ spark.sql("""
 """)
 print("✓ dim_patient created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # dim_provider (SCD Type 2)
 spark.sql("""
@@ -158,9 +192,14 @@ spark.sql("""
 """)
 print("✓ dim_provider created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # dim_payer
 spark.sql("""
@@ -176,9 +215,14 @@ spark.sql("""
 """)
 print("✓ dim_payer created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # dim_facility
 spark.sql("""
@@ -197,9 +241,14 @@ spark.sql("""
 """)
 print("✓ dim_facility created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # dim_monitor (Ontology PatientMonitor entity - static device data)
 spark.sql("""
@@ -224,9 +273,14 @@ spark.sql("""
 """)
 print("✓ dim_monitor created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # dim_medication (Type 1 - RxNorm reference data)
 spark.sql("""
@@ -248,9 +302,14 @@ spark.sql("""
 """)
 print("✓ dim_medication created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # dim_diagnosis (Type 1 - ICD-10 code reference)
 spark.sql("""
@@ -267,9 +326,14 @@ spark.sql("""
 """)
 print("✓ dim_diagnosis created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # dim_sdoh (Type 1 - Social Determinants of Health by zip code)
 spark.sql("""
@@ -294,15 +358,18 @@ spark.sql("""
 """)
 print("✓ dim_sdoh created")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 3. Fact Tables
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # fact_encounter
 spark.sql("""
@@ -330,9 +397,14 @@ spark.sql("""
 """)
 print("✓ fact_encounter created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # fact_claim
 spark.sql("""
@@ -363,9 +435,14 @@ spark.sql("""
 """)
 print("✓ fact_claim created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # fact_prescription (medication fills with adherence tracking)
 spark.sql("""
@@ -397,9 +474,14 @@ spark.sql("""
 """)
 print("✓ fact_prescription created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # fact_diagnosis (encounter → ICD code linkage)
 spark.sql("""
@@ -421,15 +503,18 @@ spark.sql("""
 """)
 print("✓ fact_diagnosis created")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 4. Aggregate Tables
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # agg_readmission_by_date
 spark.sql("""
@@ -449,9 +534,14 @@ spark.sql("""
 """)
 print("✓ agg_readmission_by_date created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # agg_denial_by_date
 spark.sql("""
@@ -472,9 +562,14 @@ spark.sql("""
 """)
 print("✓ agg_denial_by_date created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # agg_medication_adherence (PDC by patient + medication)
 spark.sql("""
@@ -503,15 +598,18 @@ spark.sql("""
 """)
 print("✓ agg_medication_adherence created")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 4b. Streaming Tables (Vitals / Alerts)
 
 # CELL ********************
-
-# META {"language":"python"}
 
 # dim_location (Hospital location dimension for streaming data)
 spark.sql("""
@@ -530,9 +628,14 @@ spark.sql("""
 """)
 print("✓ dim_location created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # fact_vitals (Hourly aggregated vital sign readings)
 spark.sql("""
@@ -564,9 +667,14 @@ spark.sql("""
 """)
 print("✓ fact_vitals created")
 
-# CELL ********************
+# METADATA ********************
 
-# META {"language":"python"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
 
 # fact_alerts (Clinical alert records from streaming vitals)
 spark.sql("""
@@ -595,15 +703,18 @@ spark.sql("""
 """)
 print("✓ fact_alerts created")
 
-# MARKDOWN ********************
+# METADATA ********************
 
-# META {"language":"markdown"}
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
 
 # ## 5. Summary
 
 # CELL ********************
-
-# META {"language":"python"}
 
 print("="*70)
 print("🏆 GOLD LAKEHOUSE TABLES CREATED")
@@ -635,3 +746,9 @@ print("2. The procs will WRITE to these lh_gold_curated tables")
 print("3. Connect Power BI using DIRECT LAKE to this lakehouse")
 print("\n✅ Best of both worlds: T-SQL procs + Direct Lake performance!")
 
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
