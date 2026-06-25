@@ -14,7 +14,7 @@ Open a GitHub issue with:
 
 - A clear title and description.
 - Steps to reproduce, expected vs actual behaviour.
-- Fabric capacity SKU (e.g. F64), region, and which launcher cell failed.
+- Fabric capacity SKU (e.g. F4), region, and which launcher cell failed.
 - The full traceback or notebook cell output (paste as a fenced code block).
 
 ## Pull requests
@@ -33,7 +33,7 @@ Open a GitHub issue with:
      downstream pipelines may bind by logical id.
 3. Keep the diff focused. One logical change per PR.
 4. Test locally end-to-end before opening the PR:
-   - Install in a fresh F64+ workspace via
+   - Install in a fresh F4+ workspace via
      `fabric_jumpstart.install('payer-provider-healthcare', ...)` once the
      catalog manifest is merged, **or** by cloning this repo and running
      `Healthcare_Launcher.Notebook` directly.

@@ -154,7 +154,11 @@ This demo aligns directly with the [Microsoft Healthcare Provider Use Cases](htt
 
 ## Quick Start
 
-1. **Create an empty Fabric workspace** (F64+ capacity recommended)
+1. **Create an empty Fabric workspace.** **F4** is enough to install and run the
+   Jumpstart end-to-end. If you plan to run a **live demo with everything firing at
+   once** (streaming ingestion + RTI scoring notebooks + Data Agent + Foundry agent +
+   Direct Lake reports), use **F16 or higher** &mdash; concurrent interactive load can
+   throttle smaller capacities.
 2. **Create a setup notebook** (for example `jumpstart-setup`) in that workspace and run:
    ```python
    %pip install -q fabric-jumpstart
@@ -186,8 +190,8 @@ This demo aligns directly with the [Microsoft Healthcare Provider Use Cases](htt
 
 If you don't yet have access to the Jumpstart catalog (`fabric_jumpstart` package), you can deploy this repo directly:
 
-1. **Create an empty Fabric workspace** (F64+ capacity recommended).
-2. **Import** `payer-provider-healthcare/Healthcare_Launcher.Notebook/notebook-content.py` as a notebook
+1. **Create an empty Fabric workspace** (**F4** minimum; **F16+** for a full live demo with streaming + agents running in parallel).
+2. **Import** `payer-provider-healthcare/00_Start_Here/Healthcare_Launcher.Notebook/notebook-content.py` as a notebook
    *(Workspace &rarr; Import &rarr; Notebook &rarr; upload as `.py` source)*.
 3. **Run All** &mdash; wait ~15-20 minutes.
 
@@ -428,7 +432,7 @@ Git sync deploys the agent prompt and data-source config automatically, but the 
 
 ### Power BI Dashboard
 
-The **HealthcareAnalyticsDashboard** Power BI report is auto-deployed by fabric-cicd from the `payer-provider-healthcare/HealthcareAnalyticsDashboard.Report/` definition. It includes:
+The **HealthcareAnalyticsDashboard** Power BI report is auto-deployed by fabric-cicd from the `payer-provider-healthcare/06_AI_and_Graph/HealthcareAnalyticsDashboard.Report/` definition. It includes:
 
 | Page | Focus | Key Visuals |
 |------|-------|-------------|
@@ -546,16 +550,16 @@ Healthcare_RTI_Eventstream (Custom Endpoint — EventHub protocol)
 > 4. In your Lakehouse → **New shortcut** → **Microsoft OneLake** → select the KQL database → choose tables
 > 5. Streaming tables now appear as Delta tables in the Lakehouse alongside batch gold tables
 
-**How to start streaming (1 manual step — unavoidable):**
+**How to start streaming (fully automatic):**
 
-Fabric does not expose Eventstream Custom Endpoint connection strings via REST API, so the simulator notebook must be given the connection string by hand. This is the only manual step in the entire deployment.
+Cell 7 of `Healthcare_Launcher` wires the Eventstream topology, and Cell 8 fetches the Custom Endpoint connection string automatically via the Fabric Eventstream REST API (`GET /eventstreams/{id}/sources/{sourceId}/connection`) — no portal copy/paste needed.
 
 1. Cell 7 of `Healthcare_Launcher` wires the Eventstream topology and prints the URL
-2. Open **Healthcare_RTI_Eventstream** in the Fabric portal
-3. Click the **HealthcareCustomEndpoint** source node → copy the **Connection String**
-4. Open **NB_RTI_Event_Simulator** → paste into `ES_CONNECTION_STRING`
-5. Run **Cell 8** of `Healthcare_Launcher` → it runs the simulator + all 3 scoring notebooks (`NB_RTI_Fraud_Detection`, `NB_RTI_Care_Gap_Alerts`, `NB_RTI_HighCost_Trajectory`) automatically
-6. Re-run any scoring notebook directly anytime to reprocess the live KQL data
+2. *(One-time)* Enable **OneLake availability** on **Healthcare_RTI_DB** in the portal (Database details → OneLake → Active)
+3. Run **Cell 8** of `Healthcare_Launcher` → it auto-fetches the connection string, runs the simulator + all 3 scoring notebooks (`NB_RTI_Fraud_Detection`, `NB_RTI_Care_Gap_Alerts`, `NB_RTI_HighCost_Trajectory`) automatically
+4. Re-run any scoring notebook directly anytime to reprocess the live KQL data
+
+> **Fallback:** if auto-fetch fails (e.g. restricted token), open **Healthcare_RTI_Eventstream** → **HealthcareCustomEndpoint** in the portal, copy the **Connection String**, and paste it into `ES_CONNECTION_STRING` in Cell 8.
 
 > The user can re-run the simulator and scoring notebooks anytime to generate and process fresh data.
 
@@ -791,13 +795,17 @@ Edit the **CONFIGURATION** cell at the top of `Healthcare_Launcher.Notebook`:
 | `RUN_PIPELINE` | `True` | Run the full-load pipeline |
 | `UPLOAD_KNOWLEDGE_DOCS` | `True` | Upload knowledge docs for AI agent |
 | `DEPLOY_STREAMING` | `False` | Deploy Real-Time Intelligence (Eventhouse + KQL + Eventstream + 3 scoring notebooks + RTI Dashboard). Set `True` for RTI. |
-| `ES_CONNECTION_STRING` | `""` | *(In NB_RTI_Event_Simulator)* Eventstream Custom Endpoint connection string. Required for streaming \u2014 copied from the portal after Eventstream is provisioned. |
+| `ES_CONNECTION_STRING` | `""` | *(Cell 8)* Eventstream Custom Endpoint connection string. Auto-fetched via the Eventstream REST API; leave empty unless you want to override it. |
 
 > **Restricted networks:** The launcher downloads from GitHub at runtime. If your environment blocks `github.com` or `raw.githubusercontent.com`, fork this repo to an allowed internal location and update `GITHUB_OWNER` / `GITHUB_REPO` accordingly.
 
 ## Prerequisites
 
-- **Microsoft Fabric** workspace with **F64** or higher capacity
+- **Microsoft Fabric** workspace capacity:
+  - **F4** &mdash; minimum to install and run the Jumpstart end-to-end.
+  - **F16+** &mdash; recommended for live demos that run streaming ingestion, RTI
+    scoring notebooks, the Data Agent, and the Foundry agent **simultaneously**.
+    Concurrent interactive load on F2/F4 can throttle mid-demo.
 - User must be workspace **Admin** or **Member**
 - Workspace should be **empty** (the launcher checks for this)
 - Internet access to download from GitHub
@@ -813,33 +821,41 @@ fabric-payer-provider-healthcare-demo-jumpstart/
 ├── deployment.yaml                          # Optional: CI/CD config
 │
 ├── payer-provider-healthcare/               # Jumpstart workspace_path (deployed by catalog)
-│   ├── Healthcare_Launcher.Notebook/        # ENTRY POINT — orchestrator notebook
-│   ├── lh_bronze_raw.Lakehouse/
-│   ├── lh_silver_stage.Lakehouse/
-│   ├── lh_silver_ods.Lakehouse/
-│   ├── lh_gold_curated.Lakehouse/
-│   ├── 01_Bronze_Ingest_CSV.Notebook/
-│   ├── 02_Silver_Stage_Clean.Notebook/
-│   ├── 03_Silver_ODS_Enrich.Notebook/
-│   ├── 06a_Create_Gold_Lakehouse_Tables.Notebook/
-│   ├── 06b_Gold_Transform_Load_v2.Notebook/
-│   ├── NB_Generate_Sample_Data.Notebook/
-│   ├── NB_Generate_Incremental_Data.Notebook/
-│   ├── NB_Deploy_Graph_Model.Notebook/
-│   ├── NB_Refresh_Graph_Model.Notebook/
-│   ├── NB_RTI_Event_Simulator.Notebook/
-│   ├── NB_RTI_Setup_Eventhouse.Notebook/
-│   ├── NB_RTI_Fraud_Detection.Notebook/
-│   ├── NB_RTI_Care_Gap_Alerts.Notebook/
-│   ├── NB_RTI_HighCost_Trajectory.Notebook/
-│   ├── PL_Healthcare_Full_Load.DataPipeline/
-│   ├── PL_Healthcare_Master.DataPipeline/
-│   ├── PL_Healthcare_RTI.DataPipeline/
-│   ├── HealthcareDemoHLS.SemanticModel/
-│   ├── HealthcareAnalyticsDashboard.Report/
-│   ├── HealthcareHLSAgent.DataAgent/
-│   ├── Healthcare_RTI_DB.KQLDatabase/       # Schema with retention + streaming policies
-│   └── Healthcare_RTI_Eventhouse.Eventhouse/
+│   ├── parameter.yml                        # fabric-cicd find/replace rules (stays at root)
+│   ├── 00_Start_Here/
+│   │   └── Healthcare_Launcher.Notebook/    # ENTRY POINT — orchestrator notebook
+│   ├── 01_Data_Generation/
+│   │   ├── NB_Generate_Sample_Data.Notebook/
+│   │   └── NB_Generate_Incremental_Data.Notebook/
+│   ├── 02_Medallion_Pipeline/
+│   │   ├── 01_Bronze_Ingest_CSV.Notebook/
+│   │   ├── 02_Silver_Stage_Clean.Notebook/
+│   │   ├── 03_Silver_ODS_Enrich.Notebook/
+│   │   ├── 06a_Create_Gold_Lakehouse_Tables.Notebook/
+│   │   └── 06b_Gold_Transform_Load_v2.Notebook/
+│   ├── 03_Lakehouses/
+│   │   ├── lh_bronze_raw.Lakehouse/
+│   │   ├── lh_silver_stage.Lakehouse/
+│   │   ├── lh_silver_ods.Lakehouse/
+│   │   └── lh_gold_curated.Lakehouse/
+│   ├── 04_Orchestration/
+│   │   ├── PL_Healthcare_Full_Load.DataPipeline/
+│   │   ├── PL_Healthcare_Master.DataPipeline/
+│   │   └── PL_Healthcare_RTI.DataPipeline/
+│   ├── 05_Real_Time_Intelligence/
+│   │   ├── Healthcare_RTI_Eventhouse.Eventhouse/
+│   │   ├── Healthcare_RTI_DB.KQLDatabase/   # Schema with retention + streaming policies
+│   │   ├── NB_RTI_Setup_Eventhouse.Notebook/
+│   │   ├── NB_RTI_Event_Simulator.Notebook/
+│   │   ├── NB_RTI_Fraud_Detection.Notebook/
+│   │   ├── NB_RTI_Care_Gap_Alerts.Notebook/
+│   │   └── NB_RTI_HighCost_Trajectory.Notebook/
+│   └── 06_AI_and_Graph/
+│       ├── HealthcareDemoHLS.SemanticModel/
+│       ├── HealthcareAnalyticsDashboard.Report/
+│       ├── HealthcareHLSAgent.DataAgent/
+│       ├── NB_Deploy_Graph_Model.Notebook/
+│       └── NB_Refresh_Graph_Model.Notebook/
 │
 ├── data_agents/                             # Reference agent configs (manual UI step)
 │   └── HealthcareOntologyAgent.DataAgent/   # Graph-based agent — created via UI per Cell 11
@@ -879,7 +895,7 @@ fabric-payer-provider-healthcare-demo-jumpstart/
 | Semantic model shows no data | Run the pipeline first — it populates Gold lakehouse tables that the model reads |
 | Data Agent returns generic answers | Open the agent → verify AI instructions are pasted from [DATA_AGENT_INSTRUCTIONS.md § 1a](DATA_AGENT_INSTRUCTIONS.md#1a--ai-instructions-stage_configjson) and data source is connected |
 | Graph Agent shows no results | Re-run Cell 5 of `Healthcare_Launcher` (deploys ontology + graph) and Cell 6 (patches agent IDs) |
-| RTI tables stay empty | Confirm `ES_CONNECTION_STRING` was pasted into Cell 8 — the Eventstream Custom Endpoint key is required for ingestion |
+| RTI tables stay empty | Cell 8 auto-fetches the Eventstream Custom Endpoint connection string. If ingestion never starts, check the `[WARN]` output in Cell 8 — if auto-fetch failed, paste the connection string into `ES_CONNECTION_STRING` manually and re-run |
 
 ## Credits
 
