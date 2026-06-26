@@ -30,16 +30,21 @@
 # 1. Generate synthetic patient/claims data into `lh_bronze_raw`
 # 2. Run the `PL_Healthcare_Master` pipeline (Bronze → Silver → Gold, full-load mode)
 # 3. Create / refresh the `HealthcareDemoHLS` Direct Lake Semantic Model
-# 4. Deploy the `Healthcare_Demo_Ontology_HLS` ontology and graph model
-# 5. Set up Real-Time Intelligence: KQL tables in `Healthcare_RTI_Eventhouse`, `Healthcare_RTI_Eventstream` (CustomEndpoint → KQL DB + `lh_bronze_raw` + Activator), and the `Healthcare RTI Dashboard`
-# 6. Run the RTI fraud-detection and high-cost-trajectory scoring notebooks
+# 4. Set up Real-Time Intelligence: KQL tables in `Healthcare_RTI_Eventhouse`, `Healthcare_RTI_Eventstream` (CustomEndpoint → KQL DB + `lh_bronze_raw` + Activator), and the `Healthcare RTI Dashboard`
+# 5. Run the RTI fraud-detection and high-cost-trajectory scoring notebooks
+# 6. Deploy the `Healthcare_Demo_Ontology_HLS` ontology and graph model
 #
-# > Set `DEPLOY_STREAMING = False` in the CONFIGURATION cell below if you want to skip steps 5–6 (batch-only demo).
+# > The ontology/graph model deploys **last** because its graph-build step is the
+# > longest-running operation; running it after RTI ensures a long graph build (or
+# > a session timeout during it) never blocks the Real-Time Intelligence items.
+# >
+# > Set `DEPLOY_STREAMING = False` in the CONFIGURATION cell below if you want to skip steps 4–5 (batch-only demo).
 #
 # The deployment itself handles everything else declaratively: the
 # `HealthcareAnalyticsDashboard` report deploys as a native item bound to the
-# semantic model, the `HealthcareHLSAgent` Data Agent datasources are remapped
-# via `parameter.yml`, the healthcare knowledge documents are copied to
+# semantic model, the `HealthcareHLSAgent` Data Agent queries `lh_gold_curated`
+# directly (lakehouse-only; its datasource is auto-remapped to the deployed
+# lakehouse), the healthcare knowledge documents are copied to
 # `lh_gold_curated/Files/healthcare_knowledge/` by the installer's file-copy
 # step, and all items land in the `payer-provider-healthcare` workspace folder,
 # organized into functional subfolders (Start Here, Data Generation, Medallion
@@ -244,10 +249,11 @@ else:
 #
 # Steps:
 #   1. Find lh_gold_curated lakehouse ID
-#   2. Delete any existing SM with the same name (idempotent re-run)
+#   2. Find any existing SM with the same name and UPDATE it in place (keeps the
+#      GUID stable so the report's by-name binding survives); create if absent
 #   3. Load all TMDL files from the extracted repo on the lakehouse filesystem
 #   4. Patch expressions.tmdl URL with correct payer-provider-healthcare/lakehouse IDs
-#   5. Create fresh SM via POST /semanticModels with all definition parts
+#   5. updateDefinition on the existing SM (or POST /semanticModels if new)
 #   6. Trigger Full refresh
 # ============================================================================
 
@@ -313,23 +319,23 @@ else:
     print(f"  Workspace: {workspace_id}")
     new_url = f"https://onelake.dfs.fabric.microsoft.com/{workspace_id}/{lh_gold_id}"
 
-    # -- Step 2: Delete existing SM if any (idempotent re-run) -------------
+    # -- Step 2: Find existing SM (update in place to keep GUID stable) ----
+    # The HealthcareAnalyticsDashboard report binds to this model by-name
+    # (definition.pbir byPath), which fabric-cicd resolves to a concrete dataset
+    # GUID at install time. Deleting + recreating the model would orphan that
+    # binding (the report would point at a deleted GUID). Instead we UPDATE the
+    # existing model's definition in place, preserving its GUID so the report
+    # stays bound. Falls back to create when no model exists yet.
+    existing_sm_id = None
     resp = requests.get(f"{FABRIC_API}/items?type=SemanticModel", headers=headers)
     resp.raise_for_status()
     for sm in resp.json().get("value", []):
         if sm["displayName"] == SM_NAME:
-            old_id = sm["id"]
-            print(f"  Deleting existing SM: {SM_NAME} ({old_id})...")
-            dr = requests.delete(f"{FABRIC_API}/semanticModels/{old_id}", headers=headers)
-            if dr.status_code in (200, 202, 204):
-                if dr.status_code == 202:
-                    wait_lro(dr, headers, timeout=60)
-                print(f"  Deleted.")
-            else:
-                print(f"  [WARN] Delete HTTP {dr.status_code}: {dr.text[:200]}")
-            print("  Waiting 10s for name availability...")
-            time.sleep(10)
+            existing_sm_id = sm["id"]
+            print(f"  Found existing SM: {SM_NAME} ({existing_sm_id}) -- update in place")
             break
+    if not existing_sm_id:
+        print(f"  No existing SM named {SM_NAME} -- will create fresh")
 
     # -- Step 3: Load TMDL from extracted repo on lakehouse ----------------
     # tmdl source is fetched from GitHub raw at runtime
@@ -449,41 +455,63 @@ else:
         if not parts:
             print("  [FAIL] No definition parts loaded. Cannot create SM.")
         else:
-            # -- Step 4: Create SM with correct definition -----------------
+            # -- Step 4: Deploy definition (update in place, or create) -----
             token = notebookutils.credentials.getToken("pbi")
             headers["Authorization"] = f"Bearer {token}"
 
-            create_body = {
-                "displayName": SM_NAME,
-                "description": "Healthcare Demo Direct Lake semantic model",
-                "definition": {"parts": parts}
-            }
-
-            print(f"  Creating SM: {SM_NAME} with {len(parts)} TMDL parts...")
-            r = requests.post(f"{FABRIC_API}/semanticModels", headers=headers, json=create_body)
-            print(f"  Create HTTP {r.status_code}")
-
             sm_id = None
-            if r.status_code in (200, 201):
-                sm_id = r.json().get("id")
-                print(f"  Created: {sm_id}")
-            elif r.status_code == 202:
-                st, body = wait_lro(r, headers, timeout=180)
-                if st == "Succeeded":
-                    time.sleep(3)
-                    resp2 = requests.get(f"{FABRIC_API}/items?type=SemanticModel", headers=headers)
-                    for sm in resp2.json().get("value", []):
-                        if sm["displayName"] == SM_NAME:
-                            sm_id = sm["id"]
-                            break
-                if sm_id:
-                    print(f"  Created (async): {sm_id}")
+            if existing_sm_id:
+                # Update in place -- keeps the GUID stable so the
+                # HealthcareAnalyticsDashboard report binding survives.
+                print(f"  Updating SM in place: {SM_NAME} ({existing_sm_id}) with {len(parts)} TMDL parts...")
+                r = requests.post(
+                    f"{FABRIC_API}/semanticModels/{existing_sm_id}/updateDefinition?updateMetadata=true",
+                    headers=headers,
+                    json={"definition": {"parts": parts}},
+                )
+                print(f"  UpdateDefinition HTTP {r.status_code}")
+                if r.status_code in (200, 201):
+                    sm_id = existing_sm_id
+                    print(f"  Updated: {sm_id}")
+                elif r.status_code == 202:
+                    st, body = wait_lro(r, headers, timeout=180)
+                    if st == "Succeeded":
+                        sm_id = existing_sm_id
+                        print(f"  Updated (async): {sm_id}")
+                    else:
+                        print(f"  Update LRO {st}: {body}")
                 else:
-                    print(f"  Create LRO {st}: {body}")
+                    print(f"  [FAIL] Update SM: HTTP {r.status_code}")
+                    print(f"  Response: {r.text[:500]}")
             else:
-                print(f"  [FAIL] Create SM: HTTP {r.status_code}")
-                print(f"  Response: {r.text[:500]}")
-                sm_id = None
+                create_body = {
+                    "displayName": SM_NAME,
+                    "description": "Healthcare Demo Direct Lake semantic model",
+                    "definition": {"parts": parts}
+                }
+                print(f"  Creating SM: {SM_NAME} with {len(parts)} TMDL parts...")
+                r = requests.post(f"{FABRIC_API}/semanticModels", headers=headers, json=create_body)
+                print(f"  Create HTTP {r.status_code}")
+                if r.status_code in (200, 201):
+                    sm_id = r.json().get("id")
+                    print(f"  Created: {sm_id}")
+                elif r.status_code == 202:
+                    st, body = wait_lro(r, headers, timeout=180)
+                    if st == "Succeeded":
+                        time.sleep(3)
+                        resp2 = requests.get(f"{FABRIC_API}/items?type=SemanticModel", headers=headers)
+                        for sm in resp2.json().get("value", []):
+                            if sm["displayName"] == SM_NAME:
+                                sm_id = sm["id"]
+                                break
+                    if sm_id:
+                        print(f"  Created (async): {sm_id}")
+                    else:
+                        print(f"  Create LRO {st}: {body}")
+                else:
+                    print(f"  [FAIL] Create SM: HTTP {r.status_code}")
+                    print(f"  Response: {r.text[:500]}")
+                    sm_id = None
 
             # -- Step 5: Trigger refresh -----------------------------------
             if sm_id:
@@ -566,522 +594,7 @@ print("=" * 60)
 # CELL ********************
 
 # ============================================================================
-# CELL 5 — Deploy Ontology & Graph Model
-# ============================================================================
-# Deploys the ontology (12 entity types, 18 relationships) directly via
-# the Fabric REST API. Graph Model is auto-provisioned by Fabric.
-# For manual graph deploy/diagnostics, use NB_Deploy_Graph_Model notebook.
-# ============================================================================
-#
-# ============================================================================
-
-import json, requests, time, base64, os, re, math, uuid
-
-print("=" * 60)
-print("  ONTOLOGY -- API Deployment")
-print("=" * 60)
-print()
-
-# -- Auth & Discovery -----------------------------------------
-token = notebookutils.credentials.getToken("pbi")
-headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-API = "https://api.fabric.microsoft.com/v1"
-
-print(f"  Workspace: {workspace_id}")
-
-# Discover lh_gold_curated lakehouse ID
-resp = requests.get(f"{API}/workspaces/{workspace_id}/lakehouses", headers=headers)
-resp.raise_for_status()
-lh_gold_id = None
-for lh in resp.json().get("value", []):
-    if lh["displayName"] == "lh_gold_curated":
-        lh_gold_id = lh["id"]
-        break
-if not lh_gold_id:
-    print("  [FAIL] lh_gold_curated not found -- run pipeline first")
-    raise RuntimeError("lh_gold_curated not found")
-print(f"  Lakehouse: lh_gold_curated ({lh_gold_id})")
-
-# -- Paths -----------------------------------------------------
-ONTOLOGY_NAME = "Healthcare_Demo_Ontology_HLS"
-GRAPH_MODEL_NAME = "Healthcare_Demo_Graph"
-ONT_API = f"{API}/workspaces/{workspace_id}/ontologies"
-GM_API = f"{API}/workspaces/{workspace_id}/graphModels"
-
-# Find the extracted repo -- launcher extracts ZIP to a subdirectory
-# e.g. .lakehouse/default/Files/src/Fabric-Payer-Provider-HealthCare-Demo-main/
-ont_dir = None
-for base in [".lakehouse/default/Files/src", "/lakehouse/default/Files/src"]:
-    if not os.path.isdir(base):
-        continue
-    # Check direct: base/ontology/ONTOLOGY_NAME
-    direct = os.path.join(base, "ontology", ONTOLOGY_NAME)
-    if os.path.isdir(direct):
-        ont_dir = direct
-        break
-    # Check one level down (extracted repo subdirectory)
-    for sub in os.listdir(base):
-        nested = os.path.join(base, sub, "ontology", ONTOLOGY_NAME)
-        if os.path.isdir(nested):
-            ont_dir = nested
-            break
-    if ont_dir:
-        break
-
-if not ont_dir:
-    print("  [WARN] Ontology dir not found on lakehouse filesystem")
-    print(f"  CWD: {os.getcwd()}")
-    for p in [".lakehouse", "/lakehouse", ".lakehouse/default", "/lakehouse/default"]:
-        print(f"    {p} exists: {os.path.exists(p)}")
-    for base in [".lakehouse/default/Files/src", "/lakehouse/default/Files/src"]:
-        if os.path.isdir(base):
-            print(f"  Contents of {base}: {os.listdir(base)[:10]}")
-    # Fallback: download ontology files from GitHub to a temp directory
-    import tempfile
-    print(f"  Downloading ontology from GitHub: {GITHUB_OWNER}/{GITHUB_REPO}@{GITHUB_BRANCH} ...")
-    raw_base = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/ontology/{ONTOLOGY_NAME}"
-    r_manifest = requests.get(f"{raw_base}/manifest.json")
-    r_manifest.raise_for_status()
-    manifest = r_manifest.json()
-    ont_dir = tempfile.mkdtemp(prefix="ontology_")
-    with open(os.path.join(ont_dir, "manifest.json"), "w", encoding="utf-8") as mf:
-        json.dump(manifest, mf, indent=2)
-    dl_count = 0
-    for part_info in manifest.get("exportedParts", []):
-        part_path = part_info["path"]
-        r_part = requests.get(f"{raw_base}/{part_path}")
-        r_part.raise_for_status()
-        dest = os.path.join(ont_dir, part_path.replace("/", os.sep))
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        with open(dest, "wb") as pf:
-            pf.write(r_part.content)
-        dl_count += 1
-    print(f"  Downloaded {dl_count} files to temp dir: {ont_dir}")
-else:
-    print(f"  Ontology dir: {ont_dir}")
-
-# -- Helper: LRO wait -----------------------------------------
-def wait_lro(response, label, timeout=180):
-    loc = response.headers.get("Location")
-    if not loc:
-        time.sleep(10)
-        return True
-    start = time.time()
-    retry = int(response.headers.get("Retry-After", 5))
-    while time.time() - start < timeout:
-        time.sleep(retry)
-        r = requests.get(loc, headers=headers)
-        if r.status_code == 200:
-            body = r.json()
-            status = body.get("status", "")
-            if status == "Succeeded":
-                return True
-            if status in ("Failed", "Cancelled"):
-                err = body.get("error", {})
-                err_code = err.get("code", "")
-                err_msg = err.get("message", "")
-                print(f"    [FAIL] {label}: {status}")
-                if err_code or err_msg:
-                    print(f"    Error: {err_code} - {err_msg[:500]}")
-                err_details = err.get("details", [])
-                if err_details:
-                    print(f"    Details: {json.dumps(err_details, indent=2)[:1000]}")
-                if not err_code and not err_msg and not err_details:
-                    print(f"    Response: {json.dumps(body, indent=2)[:500]}")
-                return False
-    print(f"    [FAIL] {label}: timed out after {timeout}s")
-    return False
-
-# -- Helper: Load ontology parts from disk ---------------------
-def load_ontology_parts(base_path):
-    parts = []
-    manifest_path = os.path.join(base_path, "manifest.json")
-    if os.path.exists(manifest_path):
-        with open(manifest_path, 'r', encoding='utf-8-sig') as f:
-            manifest = json.load(f)
-        for part_info in manifest.get("exportedParts", []):
-            part_path = part_info["path"]
-            file_path = os.path.join(base_path, part_path)
-            if not os.path.exists(file_path):
-                continue
-            with open(file_path, 'rb') as f:
-                raw = f.read()
-            if raw.startswith(b'\xef\xbb\xbf'):
-                raw = raw[3:]
-            parts.append({"path": part_path, "payload": base64.b64encode(raw).decode("utf-8"), "payloadType": "InlineBase64"})
-    else:
-        for root, _dirs, files in sorted(os.walk(base_path)):
-            for fname in sorted(files):
-                if fname in (".platform", "manifest.json"):
-                    continue
-                filepath = os.path.join(root, fname)
-                rel_path = os.path.relpath(filepath, base_path).replace("\\", "/")
-                with open(filepath, 'rb') as f:
-                    raw = f.read()
-                if raw.startswith(b'\xef\xbb\xbf'):
-                    raw = raw[3:]
-                parts.append({"path": rel_path, "payload": base64.b64encode(raw).decode("utf-8"), "payloadType": "InlineBase64"})
-    return parts
-
-# -- Helper: Patch data binding IDs ----------------------------
-def patch_bindings(parts, ws_id, lh_id):
-    patched = []
-    for part in parts:
-        path = part["path"]
-        if "DataBindings/" in path or "Contextualizations/" in path:
-            try:
-                content = base64.b64decode(part["payload"]).decode("utf-8")
-                obj = json.loads(content)
-                _patch_ids(obj, ws_id, lh_id)
-                content = json.dumps(obj, indent=2, ensure_ascii=False)
-                part = {**part, "payload": base64.b64encode(content.encode("utf-8")).decode("utf-8")}
-            except Exception as e:
-                print(f"    [WARN] Could not patch {path}: {e}")
-        patched.append(part)
-    return patched
-
-def _patch_ids(obj, ws_id, lh_id):
-    if isinstance(obj, dict):
-        for key in list(obj.keys()):
-            val = obj[key]
-            lk = key.lower()
-            if lk in ("workspaceid", "workspaceguid", "workspace_id"):
-                obj[key] = ws_id
-            elif lk in ("itemid", "lakehouseid", "artifactid", "item_id"):
-                obj[key] = lh_id
-            elif isinstance(val, str) and "onelake" in val.lower():
-                m = re.match(r'(abfss://)([0-9a-f-]+)(@onelake[^/]*/)([0-9a-f-]+)(.*)', val, re.I)
-                if m:
-                    obj[key] = f"{m.group(1)}{ws_id}{m.group(3)}{lh_id}{m.group(5)}"
-            elif isinstance(val, (dict, list)):
-                _patch_ids(val, ws_id, lh_id)
-    elif isinstance(obj, list):
-        for item in obj:
-            if isinstance(item, (dict, list)):
-                _patch_ids(item, ws_id, lh_id)
-
-# ==============================================================
-# STEP 1: DEPLOY ONTOLOGY
-# ==============================================================
-print()
-print("Step 1: Deploy Ontology")
-print("-" * 40)
-
-# Load parts
-parts = load_ontology_parts(ont_dir)
-et_count = sum(1 for p in parts if p["path"].startswith("EntityTypes/") and p["path"].endswith("/definition.json"))
-rt_count = sum(1 for p in parts if p["path"].startswith("RelationshipTypes/") and p["path"].endswith("/definition.json"))
-print(f"  Loaded {len(parts)} parts: {et_count} entities, {rt_count} relationships")
-
-# Patch data bindings
-parts = patch_bindings(parts, workspace_id, lh_gold_id)
-print(f"  Patched data bindings for target environment")
-
-# -- Pre-deploy Validation: verify bindings match actual table schemas ------
-print()
-print("  Pre-deploy validation (bindings vs table schemas)...")
-_val_errors = []
-_val_fixes = []
-
-# Helper: get table columns using Delta path (no default lakehouse needed)
-_table_cols_cache = {}
-def _get_table_cols(table_name):
-    if table_name in _table_cols_cache:
-        return _table_cols_cache[table_name]
-    cols = None
-    # Try 1: Spark SQL (works if default lakehouse is attached)
-    try:
-        _df = spark.sql(f"DESCRIBE lh_gold_curated.{table_name}")
-        cols = {r["col_name"] for r in _df.collect() if not r["col_name"].startswith("#")}
-    except Exception:
-        pass
-    # Try 2: Read Delta schema via OneLake path (no default lakehouse needed)
-    if cols is None:
-        try:
-            _path = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lh_gold_id}/Tables/{table_name}"
-            _df = spark.read.format("delta").load(_path)
-            cols = {f.name for f in _df.schema.fields}
-        except Exception:
-            pass
-    _table_cols_cache[table_name] = cols
-    return cols
-
-# Test if we can reach any table at all
-_sample_table = None
-for _p in parts:
-    _pp = _p["path"]
-    if "DataBindings/" in _pp:
-        try:
-            _b = json.loads(base64.b64decode(_p["payload"]).decode("utf-8"))
-            _sample_table = _b.get("dataBindingConfiguration", {}).get("sourceTableProperties", {}).get("sourceTableName")
-            if _sample_table:
-                break
-        except Exception:
-            pass
-_can_validate = _get_table_cols(_sample_table) is not None if _sample_table else False
-if not _can_validate:
-    print("  [INFO] Table schemas not accessible (no default lakehouse context)")
-    print("         Skipping column validation -- ontology push will proceed")
-    print("         The binding structure and property-name consistency will still be checked")
-
-# Build lookup: decode definition.json and DataBinding parts
-_entity_defs = {}   # entity_folder_id -> definition dict
-_entity_bindings = {}  # entity_folder_id -> binding dict
-for _p in parts:
-    _pp = _p["path"]
-    if _pp.startswith("EntityTypes/") and _pp.endswith("/definition.json"):
-        _folder_id = _pp.split("/")[1]
-        try:
-            _entity_defs[_folder_id] = json.loads(base64.b64decode(_p["payload"]).decode("utf-8"))
-        except Exception:
-            pass
-    elif "DataBindings/" in _pp and _pp.startswith("EntityTypes/"):
-        _folder_id = _pp.split("/")[1]
-        try:
-            _entity_bindings[_folder_id] = json.loads(base64.b64decode(_p["payload"]).decode("utf-8"))
-        except Exception:
-            pass
-
-# Validate each entity: property names vs binding sourceColumnNames vs actual table columns
-for _folder_id, _defn in _entity_defs.items():
-    _ename = _defn.get("name", _folder_id)
-    _bnd = _entity_bindings.get(_folder_id)
-    if not _bnd:
-        continue
-    _cfg = _bnd.get("dataBindingConfiguration", {})
-    _src_table = (_cfg.get("sourceTableProperties", {}).get("sourceTableName"))
-    if not _src_table:
-        continue
-
-    # Get actual table columns (Spark SQL or Delta path)
-    _actual_cols = _get_table_cols(_src_table) if _can_validate else None
-
-    # Build property id -> name lookup from definition
-    _prop_id_to_name = {p["id"]: p["name"] for p in _defn.get("properties", [])}
-
-    # Check each binding
-    for _pb in _cfg.get("propertyBindings", []):
-        _src_col = _pb["sourceColumnName"]
-        _target_pid = _pb["targetPropertyId"]
-        _prop_name = _prop_id_to_name.get(_target_pid, "?")
-
-        # Check 1: sourceColumnName must exist in actual table (only if we can validate)
-        if _actual_cols is not None and _src_col not in _actual_cols:
-            _val_errors.append(f"  {_ename}: binding column '{_src_col}' not in {_src_table} (actual: {sorted(_actual_cols)[:8]}...)")
-
-        # Check 2: property name should match sourceColumnName for auto-provisioned graph
-        # Skip columns starting with '_' (metadata/system cols like _load_timestamp)
-        if _prop_name != _src_col and _prop_name != "?" and not _src_col.startswith("_"):
-            _val_fixes.append((_folder_id, _target_pid, _prop_name, _src_col, _ename))
-
-# Auto-fix property name mismatches in parts (in memory)
-if _val_fixes:
-    print(f"  Found {len(_val_fixes)} property name mismatches -- auto-fixing in parts...")
-    _fix_lookup = {}  # (folder_id, prop_id) -> new_name
-    for _folder_id, _pid, _old, _new, _ename in _val_fixes:
-        _fix_lookup[(_folder_id, _pid)] = _new
-        print(f"    {_ename}: '{_old}' -> '{_new}'")
-
-    # Patch definition.json parts in memory
-    for _pi, _p in enumerate(parts):
-        _pp = _p["path"]
-        if not (_pp.startswith("EntityTypes/") and _pp.endswith("/definition.json")):
-            continue
-        _folder_id = _pp.split("/")[1]
-        _needs_fix = any(fid == _folder_id for (fid, _) in _fix_lookup)
-        if not _needs_fix:
-            continue
-        try:
-            _d = json.loads(base64.b64decode(_p["payload"]).decode("utf-8"))
-            _changed = False
-            for _prop in _d.get("properties", []):
-                _key = (_folder_id, _prop["id"])
-                if _key in _fix_lookup:
-                    _prop["name"] = _fix_lookup[_key]
-                    _changed = True
-            if _changed:
-                parts[_pi] = {**_p, "payload": base64.b64encode(
-                    json.dumps(_d, indent=2, ensure_ascii=False).encode("utf-8")
-                ).decode("utf-8")}
-        except Exception:
-            pass
-
-# Validate contextualization columns (only if tables are accessible)
-_ctx_errors = []
-if _can_validate:
-    for _p in parts:
-        _pp = _p["path"]
-        if "Contextualizations/" not in _pp:
-            continue
-        try:
-            _ctx = json.loads(base64.b64decode(_p["payload"]).decode("utf-8"))
-            _ctx_table = _ctx.get("dataBindingTable", {}).get("sourceTableName")
-            if not _ctx_table:
-                continue
-            _ctx_cols = _get_table_cols(_ctx_table)
-            if _ctx_cols is None:
-                _ctx_errors.append(f"  Contextualization table {_ctx_table} not accessible")
-                continue
-            for _sk in _ctx.get("sourceKeyRefBindings", []):
-                if _sk["sourceColumnName"] not in _ctx_cols:
-                    _ctx_errors.append(f"  {_ctx_table}: sourceKey '{_sk['sourceColumnName']}' not in columns")
-            for _tk in _ctx.get("targetKeyRefBindings", []):
-                if _tk["sourceColumnName"] not in _ctx_cols:
-                    _ctx_errors.append(f"  {_ctx_table}: targetKey '{_tk['sourceColumnName']}' not in columns")
-        except Exception:
-            pass
-
-# Print validation results
-if _val_errors:
-    print(f"  *** BINDING VALIDATION ERRORS ({len(_val_errors)}) ***")
-    for _ve in _val_errors:
-        print(f"    {_ve}")
-if _ctx_errors:
-    print(f"  *** CONTEXTUALIZATION ERRORS ({len(_ctx_errors)}) ***")
-    for _ce in _ctx_errors:
-        print(f"    {_ce}")
-if not _val_errors and not _ctx_errors:
-    fixes_msg = f" ({len(_val_fixes)} auto-fixed)" if _val_fixes else ""
-    print(f"  All bindings and contextualizations validated OK{fixes_msg}")
-
-# Check if ontology already exists
-ont_id = None
-r = requests.get(ONT_API, headers=headers)
-if r.status_code == 200:
-    for o in r.json().get("value", []):
-        if o["displayName"] == ONTOLOGY_NAME:
-            ont_id = o["id"]
-            print(f"  Already exists (ID: {ont_id}) -- will update definition")
-            break
-
-# Fallback: try items endpoint
-if not ont_id and r.status_code != 200:
-    r2 = requests.get(f"{API}/workspaces/{workspace_id}/items?type=Ontology", headers=headers)
-    if r2.status_code == 200:
-        for o in r2.json().get("value", []):
-            if o["displayName"] == ONTOLOGY_NAME:
-                ont_id = o["id"]
-                break
-
-if not ont_id:
-    # Create new ontology
-    create_body = {
-        "displayName": ONTOLOGY_NAME,
-        "description": f"Healthcare Ontology -- {et_count} entity types, {rt_count} relationships, bound to lh_gold_curated",
-    }
-    r = requests.post(ONT_API, headers=headers, json=create_body)
-    if r.status_code in (200, 201):
-        ont_id = r.json().get("id")
-        print(f"  Created: {ont_id}")
-    elif r.status_code == 202:
-        wait_lro(r, "create ontology")
-        time.sleep(3)
-        r2 = requests.get(ONT_API, headers=headers)
-        for o in r2.json().get("value", []):
-            if o["displayName"] == ONTOLOGY_NAME:
-                ont_id = o["id"]
-                break
-        print(f"  Created (async): {ont_id}")
-    elif "AlreadyInUse" in (r.text or ""):
-        r2 = requests.get(ONT_API, headers=headers)
-        for o in r2.json().get("value", []):
-            if o["displayName"] == ONTOLOGY_NAME:
-                ont_id = o["id"]
-                break
-        print(f"  Found existing: {ont_id}")
-    else:
-        print(f"  [FAIL] Create ontology: HTTP {r.status_code} {r.text[:300]}")
-
-ont_result = "[FAIL]"
-if ont_id:
-    # Push definition
-    update_url = f"{ONT_API}/{ont_id}/updateDefinition"
-    r = requests.post(update_url, headers=headers, json={"definition": {"parts": parts}})
-    if r.status_code in (200, 201):
-        print(f"  [OK] Definition pushed")
-        ont_result = "[OK]"
-    elif r.status_code == 202:
-        ok = wait_lro(r, "updateDefinition")
-        ont_result = "[OK]" if ok else "[FAIL]"
-        print(f"  {'[OK]' if ok else '[FAIL]'} Definition push {'succeeded' if ok else 'failed'}")
-    else:
-        print(f"  [FAIL] updateDefinition: HTTP {r.status_code} {r.text[:300]}")
-
-# -- Ontology Summary --
-print()
-print("=" * 60)
-print(f"  ONTOLOGY: {ONTOLOGY_NAME:<38} {ont_result}")
-print("=" * 60)
-
-# -- Post-deploy: Deploy graph model via standalone notebook ----------
-if ont_result == "[OK]":
-    print()
-    print("Step 2: Deploy Graph Model")
-    print("-" * 40)
-
-    # NB_Deploy_Graph_Model is deployed as a repo item by the installer.
-    # Confirm it's present in the workspace, then run it directly --
-    # no GitHub download or notebook (re)creation needed.
-    token = notebookutils.credentials.getToken("pbi")
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    _items_r = requests.get(f"{API}/workspaces/{workspace_id}/items?type=Notebook", headers=headers)
-    _nb_id = None
-    if _items_r.status_code == 200:
-        for _it in _items_r.json().get("value", []):
-            if _it["displayName"] == "NB_Deploy_Graph_Model":
-                _nb_id = _it["id"]
-                break
-    if not _nb_id:
-        print("  [WARN] NB_Deploy_Graph_Model not found in workspace --")
-        print("         ensure the full item set was deployed via the installer.")
-
-    if _nb_id:
-        print(f"  Running NB_Deploy_Graph_Model notebook...")
-        print(f"  (validates bindings, builds graph definition, deploys,")
-        print(f"   waits for data load, runs smoke tests)")
-        print()
-        try:
-            notebookutils.notebook.run("NB_Deploy_Graph_Model", 600, {"useRootDefaultLakehouse": True})
-            graph_st = "[OK]"
-            print()
-            print(f"  [OK] NB_Deploy_Graph_Model completed successfully")
-        except Exception as _gm_err:
-            if "mssparkutilsrun-result+json" in str(_gm_err) or "NoSuchElementException" in str(_gm_err):
-                graph_st = "[OK]"
-                print()
-                print(f"  [OK] NB_Deploy_Graph_Model completed (ignoring Fabric result-parse bug)")
-            else:
-                graph_st = "[FAIL]"
-                _gm_err_str = str(_gm_err)
-                print()
-                if "404" in _gm_err_str or "not found" in _gm_err_str.lower():
-                    print(f"  [FAIL] Fabric cannot find NB_Deploy_Graph_Model (may need more time to index)")
-                    print(f"         Wait 1-2 minutes, then run NB_Deploy_Graph_Model manually from the workspace")
-                else:
-                    print(f"  [FAIL] NB_Deploy_Graph_Model failed: {_gm_err_str[:500]}")
-                    print(f"         Open NB_Deploy_Graph_Model manually for detailed diagnostics")
-    else:
-        graph_st = "[FAIL]"
-        print(f"  [FAIL] NB_Deploy_Graph_Model not found in workspace")
-        print(f"         Ensure the full item set was deployed via the installer, then run it")
-
-    print()
-    print("=" * 60)
-    print(f"  ONTOLOGY:    {ONTOLOGY_NAME:<36} {ont_result}")
-    print(f"  GRAPH:       NB_Deploy_Graph_Model{' ':>16} {graph_st}")
-    print("=" * 60)
-
-# METADATA ********************
-
-# META {
-# META   "language": "python",
-# META   "language_group": "synapse_pyspark"
-# META }
-
-# CELL ********************
-
-# ============================================================================
-# CELL 7 — Deploy Real-Time Intelligence (RTI) streaming topology
+# CELL 5 — Deploy Real-Time Intelligence (RTI) streaming topology
 # ============================================================================
 # Eventhouse + KQL Database are already deployed as Git artifacts (Stage 2).
 # This cell:
@@ -2000,7 +1513,7 @@ else:
 # CELL ********************
 
 # ============================================================================
-# CELL 8 — Run RTI Streaming Pipeline (Eventstream → KQL → Scoring)
+# CELL 6 — Run RTI Streaming Pipeline (Eventstream → KQL → Scoring)
 # ============================================================================
 # Orchestrates the full RTI pipeline:
 #   1. Run NB_RTI_Event_Simulator (streams events → Eventstream → KQL)
@@ -2235,6 +1748,521 @@ else:
         print("  Fix the issue and re-run this cell.")
     else:
         print("\n  KQL Database not found — cannot verify data or run scoring.")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# ============================================================================
+# CELL 7 — Deploy Ontology & Graph Model
+# ============================================================================
+# Deploys the ontology (12 entity types, 18 relationships) directly via
+# the Fabric REST API. Graph Model is auto-provisioned by Fabric.
+# For manual graph deploy/diagnostics, use NB_Deploy_Graph_Model notebook.
+# ============================================================================
+#
+# ============================================================================
+
+import json, requests, time, base64, os, re, math, uuid
+
+print("=" * 60)
+print("  ONTOLOGY -- API Deployment")
+print("=" * 60)
+print()
+
+# -- Auth & Discovery -----------------------------------------
+token = notebookutils.credentials.getToken("pbi")
+headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+API = "https://api.fabric.microsoft.com/v1"
+
+print(f"  Workspace: {workspace_id}")
+
+# Discover lh_gold_curated lakehouse ID
+resp = requests.get(f"{API}/workspaces/{workspace_id}/lakehouses", headers=headers)
+resp.raise_for_status()
+lh_gold_id = None
+for lh in resp.json().get("value", []):
+    if lh["displayName"] == "lh_gold_curated":
+        lh_gold_id = lh["id"]
+        break
+if not lh_gold_id:
+    print("  [FAIL] lh_gold_curated not found -- run pipeline first")
+    raise RuntimeError("lh_gold_curated not found")
+print(f"  Lakehouse: lh_gold_curated ({lh_gold_id})")
+
+# -- Paths -----------------------------------------------------
+ONTOLOGY_NAME = "Healthcare_Demo_Ontology_HLS"
+GRAPH_MODEL_NAME = "Healthcare_Demo_Graph"
+ONT_API = f"{API}/workspaces/{workspace_id}/ontologies"
+GM_API = f"{API}/workspaces/{workspace_id}/graphModels"
+
+# Find the extracted repo -- launcher extracts ZIP to a subdirectory
+# e.g. .lakehouse/default/Files/src/Fabric-Payer-Provider-HealthCare-Demo-main/
+ont_dir = None
+for base in [".lakehouse/default/Files/src", "/lakehouse/default/Files/src"]:
+    if not os.path.isdir(base):
+        continue
+    # Check direct: base/ontology/ONTOLOGY_NAME
+    direct = os.path.join(base, "ontology", ONTOLOGY_NAME)
+    if os.path.isdir(direct):
+        ont_dir = direct
+        break
+    # Check one level down (extracted repo subdirectory)
+    for sub in os.listdir(base):
+        nested = os.path.join(base, sub, "ontology", ONTOLOGY_NAME)
+        if os.path.isdir(nested):
+            ont_dir = nested
+            break
+    if ont_dir:
+        break
+
+if not ont_dir:
+    print("  [WARN] Ontology dir not found on lakehouse filesystem")
+    print(f"  CWD: {os.getcwd()}")
+    for p in [".lakehouse", "/lakehouse", ".lakehouse/default", "/lakehouse/default"]:
+        print(f"    {p} exists: {os.path.exists(p)}")
+    for base in [".lakehouse/default/Files/src", "/lakehouse/default/Files/src"]:
+        if os.path.isdir(base):
+            print(f"  Contents of {base}: {os.listdir(base)[:10]}")
+    # Fallback: download ontology files from GitHub to a temp directory
+    import tempfile
+    print(f"  Downloading ontology from GitHub: {GITHUB_OWNER}/{GITHUB_REPO}@{GITHUB_BRANCH} ...")
+    raw_base = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/ontology/{ONTOLOGY_NAME}"
+    r_manifest = requests.get(f"{raw_base}/manifest.json")
+    r_manifest.raise_for_status()
+    manifest = r_manifest.json()
+    ont_dir = tempfile.mkdtemp(prefix="ontology_")
+    with open(os.path.join(ont_dir, "manifest.json"), "w", encoding="utf-8") as mf:
+        json.dump(manifest, mf, indent=2)
+    dl_count = 0
+    for part_info in manifest.get("exportedParts", []):
+        part_path = part_info["path"]
+        r_part = requests.get(f"{raw_base}/{part_path}")
+        r_part.raise_for_status()
+        dest = os.path.join(ont_dir, part_path.replace("/", os.sep))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as pf:
+            pf.write(r_part.content)
+        dl_count += 1
+    print(f"  Downloaded {dl_count} files to temp dir: {ont_dir}")
+else:
+    print(f"  Ontology dir: {ont_dir}")
+
+# -- Helper: LRO wait -----------------------------------------
+def wait_lro(response, label, timeout=180):
+    loc = response.headers.get("Location")
+    if not loc:
+        time.sleep(10)
+        return True
+    start = time.time()
+    retry = int(response.headers.get("Retry-After", 5))
+    while time.time() - start < timeout:
+        time.sleep(retry)
+        r = requests.get(loc, headers=headers)
+        if r.status_code == 200:
+            body = r.json()
+            status = body.get("status", "")
+            if status == "Succeeded":
+                return True
+            if status in ("Failed", "Cancelled"):
+                err = body.get("error", {})
+                err_code = err.get("code", "")
+                err_msg = err.get("message", "")
+                print(f"    [FAIL] {label}: {status}")
+                if err_code or err_msg:
+                    print(f"    Error: {err_code} - {err_msg[:500]}")
+                err_details = err.get("details", [])
+                if err_details:
+                    print(f"    Details: {json.dumps(err_details, indent=2)[:1000]}")
+                if not err_code and not err_msg and not err_details:
+                    print(f"    Response: {json.dumps(body, indent=2)[:500]}")
+                return False
+    print(f"    [FAIL] {label}: timed out after {timeout}s")
+    return False
+
+# -- Helper: Load ontology parts from disk ---------------------
+def load_ontology_parts(base_path):
+    parts = []
+    manifest_path = os.path.join(base_path, "manifest.json")
+    if os.path.exists(manifest_path):
+        with open(manifest_path, 'r', encoding='utf-8-sig') as f:
+            manifest = json.load(f)
+        for part_info in manifest.get("exportedParts", []):
+            part_path = part_info["path"]
+            file_path = os.path.join(base_path, part_path)
+            if not os.path.exists(file_path):
+                continue
+            with open(file_path, 'rb') as f:
+                raw = f.read()
+            if raw.startswith(b'\xef\xbb\xbf'):
+                raw = raw[3:]
+            parts.append({"path": part_path, "payload": base64.b64encode(raw).decode("utf-8"), "payloadType": "InlineBase64"})
+    else:
+        for root, _dirs, files in sorted(os.walk(base_path)):
+            for fname in sorted(files):
+                if fname in (".platform", "manifest.json"):
+                    continue
+                filepath = os.path.join(root, fname)
+                rel_path = os.path.relpath(filepath, base_path).replace("\\", "/")
+                with open(filepath, 'rb') as f:
+                    raw = f.read()
+                if raw.startswith(b'\xef\xbb\xbf'):
+                    raw = raw[3:]
+                parts.append({"path": rel_path, "payload": base64.b64encode(raw).decode("utf-8"), "payloadType": "InlineBase64"})
+    return parts
+
+# -- Helper: Patch data binding IDs ----------------------------
+def patch_bindings(parts, ws_id, lh_id):
+    patched = []
+    for part in parts:
+        path = part["path"]
+        if "DataBindings/" in path or "Contextualizations/" in path:
+            try:
+                content = base64.b64decode(part["payload"]).decode("utf-8")
+                obj = json.loads(content)
+                _patch_ids(obj, ws_id, lh_id)
+                content = json.dumps(obj, indent=2, ensure_ascii=False)
+                part = {**part, "payload": base64.b64encode(content.encode("utf-8")).decode("utf-8")}
+            except Exception as e:
+                print(f"    [WARN] Could not patch {path}: {e}")
+        patched.append(part)
+    return patched
+
+def _patch_ids(obj, ws_id, lh_id):
+    if isinstance(obj, dict):
+        for key in list(obj.keys()):
+            val = obj[key]
+            lk = key.lower()
+            if lk in ("workspaceid", "workspaceguid", "workspace_id"):
+                obj[key] = ws_id
+            elif lk in ("itemid", "lakehouseid", "artifactid", "item_id"):
+                obj[key] = lh_id
+            elif isinstance(val, str) and "onelake" in val.lower():
+                m = re.match(r'(abfss://)([0-9a-f-]+)(@onelake[^/]*/)([0-9a-f-]+)(.*)', val, re.I)
+                if m:
+                    obj[key] = f"{m.group(1)}{ws_id}{m.group(3)}{lh_id}{m.group(5)}"
+            elif isinstance(val, (dict, list)):
+                _patch_ids(val, ws_id, lh_id)
+    elif isinstance(obj, list):
+        for item in obj:
+            if isinstance(item, (dict, list)):
+                _patch_ids(item, ws_id, lh_id)
+
+# ==============================================================
+# STEP 1: DEPLOY ONTOLOGY
+# ==============================================================
+print()
+print("Step 1: Deploy Ontology")
+print("-" * 40)
+
+# Load parts
+parts = load_ontology_parts(ont_dir)
+et_count = sum(1 for p in parts if p["path"].startswith("EntityTypes/") and p["path"].endswith("/definition.json"))
+rt_count = sum(1 for p in parts if p["path"].startswith("RelationshipTypes/") and p["path"].endswith("/definition.json"))
+print(f"  Loaded {len(parts)} parts: {et_count} entities, {rt_count} relationships")
+
+# Patch data bindings
+parts = patch_bindings(parts, workspace_id, lh_gold_id)
+print(f"  Patched data bindings for target environment")
+
+# -- Pre-deploy Validation: verify bindings match actual table schemas ------
+print()
+print("  Pre-deploy validation (bindings vs table schemas)...")
+_val_errors = []
+_val_fixes = []
+
+# Helper: get table columns using Delta path (no default lakehouse needed)
+_table_cols_cache = {}
+def _get_table_cols(table_name):
+    if table_name in _table_cols_cache:
+        return _table_cols_cache[table_name]
+    cols = None
+    # Try 1: Spark SQL (works if default lakehouse is attached)
+    try:
+        _df = spark.sql(f"DESCRIBE lh_gold_curated.{table_name}")
+        cols = {r["col_name"] for r in _df.collect() if not r["col_name"].startswith("#")}
+    except Exception:
+        pass
+    # Try 2: Read Delta schema via OneLake path (no default lakehouse needed)
+    if cols is None:
+        try:
+            _path = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lh_gold_id}/Tables/{table_name}"
+            _df = spark.read.format("delta").load(_path)
+            cols = {f.name for f in _df.schema.fields}
+        except Exception:
+            pass
+    _table_cols_cache[table_name] = cols
+    return cols
+
+# Test if we can reach any table at all
+_sample_table = None
+for _p in parts:
+    _pp = _p["path"]
+    if "DataBindings/" in _pp:
+        try:
+            _b = json.loads(base64.b64decode(_p["payload"]).decode("utf-8"))
+            _sample_table = _b.get("dataBindingConfiguration", {}).get("sourceTableProperties", {}).get("sourceTableName")
+            if _sample_table:
+                break
+        except Exception:
+            pass
+_can_validate = _get_table_cols(_sample_table) is not None if _sample_table else False
+if not _can_validate:
+    print("  [INFO] Table schemas not accessible (no default lakehouse context)")
+    print("         Skipping column validation -- ontology push will proceed")
+    print("         The binding structure and property-name consistency will still be checked")
+
+# Build lookup: decode definition.json and DataBinding parts
+_entity_defs = {}   # entity_folder_id -> definition dict
+_entity_bindings = {}  # entity_folder_id -> binding dict
+for _p in parts:
+    _pp = _p["path"]
+    if _pp.startswith("EntityTypes/") and _pp.endswith("/definition.json"):
+        _folder_id = _pp.split("/")[1]
+        try:
+            _entity_defs[_folder_id] = json.loads(base64.b64decode(_p["payload"]).decode("utf-8"))
+        except Exception:
+            pass
+    elif "DataBindings/" in _pp and _pp.startswith("EntityTypes/"):
+        _folder_id = _pp.split("/")[1]
+        try:
+            _entity_bindings[_folder_id] = json.loads(base64.b64decode(_p["payload"]).decode("utf-8"))
+        except Exception:
+            pass
+
+# Validate each entity: property names vs binding sourceColumnNames vs actual table columns
+for _folder_id, _defn in _entity_defs.items():
+    _ename = _defn.get("name", _folder_id)
+    _bnd = _entity_bindings.get(_folder_id)
+    if not _bnd:
+        continue
+    _cfg = _bnd.get("dataBindingConfiguration", {})
+    _src_table = (_cfg.get("sourceTableProperties", {}).get("sourceTableName"))
+    if not _src_table:
+        continue
+
+    # Get actual table columns (Spark SQL or Delta path)
+    _actual_cols = _get_table_cols(_src_table) if _can_validate else None
+
+    # Build property id -> name lookup from definition
+    _prop_id_to_name = {p["id"]: p["name"] for p in _defn.get("properties", [])}
+
+    # Check each binding
+    for _pb in _cfg.get("propertyBindings", []):
+        _src_col = _pb["sourceColumnName"]
+        _target_pid = _pb["targetPropertyId"]
+        _prop_name = _prop_id_to_name.get(_target_pid, "?")
+
+        # Check 1: sourceColumnName must exist in actual table (only if we can validate)
+        if _actual_cols is not None and _src_col not in _actual_cols:
+            _val_errors.append(f"  {_ename}: binding column '{_src_col}' not in {_src_table} (actual: {sorted(_actual_cols)[:8]}...)")
+
+        # Check 2: property name should match sourceColumnName for auto-provisioned graph
+        # Skip columns starting with '_' (metadata/system cols like _load_timestamp)
+        if _prop_name != _src_col and _prop_name != "?" and not _src_col.startswith("_"):
+            _val_fixes.append((_folder_id, _target_pid, _prop_name, _src_col, _ename))
+
+# Auto-fix property name mismatches in parts (in memory)
+if _val_fixes:
+    print(f"  Found {len(_val_fixes)} property name mismatches -- auto-fixing in parts...")
+    _fix_lookup = {}  # (folder_id, prop_id) -> new_name
+    for _folder_id, _pid, _old, _new, _ename in _val_fixes:
+        _fix_lookup[(_folder_id, _pid)] = _new
+        print(f"    {_ename}: '{_old}' -> '{_new}'")
+
+    # Patch definition.json parts in memory
+    for _pi, _p in enumerate(parts):
+        _pp = _p["path"]
+        if not (_pp.startswith("EntityTypes/") and _pp.endswith("/definition.json")):
+            continue
+        _folder_id = _pp.split("/")[1]
+        _needs_fix = any(fid == _folder_id for (fid, _) in _fix_lookup)
+        if not _needs_fix:
+            continue
+        try:
+            _d = json.loads(base64.b64decode(_p["payload"]).decode("utf-8"))
+            _changed = False
+            for _prop in _d.get("properties", []):
+                _key = (_folder_id, _prop["id"])
+                if _key in _fix_lookup:
+                    _prop["name"] = _fix_lookup[_key]
+                    _changed = True
+            if _changed:
+                parts[_pi] = {**_p, "payload": base64.b64encode(
+                    json.dumps(_d, indent=2, ensure_ascii=False).encode("utf-8")
+                ).decode("utf-8")}
+        except Exception:
+            pass
+
+# Validate contextualization columns (only if tables are accessible)
+_ctx_errors = []
+if _can_validate:
+    for _p in parts:
+        _pp = _p["path"]
+        if "Contextualizations/" not in _pp:
+            continue
+        try:
+            _ctx = json.loads(base64.b64decode(_p["payload"]).decode("utf-8"))
+            _ctx_table = _ctx.get("dataBindingTable", {}).get("sourceTableName")
+            if not _ctx_table:
+                continue
+            _ctx_cols = _get_table_cols(_ctx_table)
+            if _ctx_cols is None:
+                _ctx_errors.append(f"  Contextualization table {_ctx_table} not accessible")
+                continue
+            for _sk in _ctx.get("sourceKeyRefBindings", []):
+                if _sk["sourceColumnName"] not in _ctx_cols:
+                    _ctx_errors.append(f"  {_ctx_table}: sourceKey '{_sk['sourceColumnName']}' not in columns")
+            for _tk in _ctx.get("targetKeyRefBindings", []):
+                if _tk["sourceColumnName"] not in _ctx_cols:
+                    _ctx_errors.append(f"  {_ctx_table}: targetKey '{_tk['sourceColumnName']}' not in columns")
+        except Exception:
+            pass
+
+# Print validation results
+if _val_errors:
+    print(f"  *** BINDING VALIDATION ERRORS ({len(_val_errors)}) ***")
+    for _ve in _val_errors:
+        print(f"    {_ve}")
+if _ctx_errors:
+    print(f"  *** CONTEXTUALIZATION ERRORS ({len(_ctx_errors)}) ***")
+    for _ce in _ctx_errors:
+        print(f"    {_ce}")
+if not _val_errors and not _ctx_errors:
+    fixes_msg = f" ({len(_val_fixes)} auto-fixed)" if _val_fixes else ""
+    print(f"  All bindings and contextualizations validated OK{fixes_msg}")
+
+# Check if ontology already exists
+ont_id = None
+r = requests.get(ONT_API, headers=headers)
+if r.status_code == 200:
+    for o in r.json().get("value", []):
+        if o["displayName"] == ONTOLOGY_NAME:
+            ont_id = o["id"]
+            print(f"  Already exists (ID: {ont_id}) -- will update definition")
+            break
+
+# Fallback: try items endpoint
+if not ont_id and r.status_code != 200:
+    r2 = requests.get(f"{API}/workspaces/{workspace_id}/items?type=Ontology", headers=headers)
+    if r2.status_code == 200:
+        for o in r2.json().get("value", []):
+            if o["displayName"] == ONTOLOGY_NAME:
+                ont_id = o["id"]
+                break
+
+if not ont_id:
+    # Create new ontology
+    create_body = {
+        "displayName": ONTOLOGY_NAME,
+        "description": f"Healthcare Ontology -- {et_count} entity types, {rt_count} relationships, bound to lh_gold_curated",
+    }
+    r = requests.post(ONT_API, headers=headers, json=create_body)
+    if r.status_code in (200, 201):
+        ont_id = r.json().get("id")
+        print(f"  Created: {ont_id}")
+    elif r.status_code == 202:
+        wait_lro(r, "create ontology")
+        time.sleep(3)
+        r2 = requests.get(ONT_API, headers=headers)
+        for o in r2.json().get("value", []):
+            if o["displayName"] == ONTOLOGY_NAME:
+                ont_id = o["id"]
+                break
+        print(f"  Created (async): {ont_id}")
+    elif "AlreadyInUse" in (r.text or ""):
+        r2 = requests.get(ONT_API, headers=headers)
+        for o in r2.json().get("value", []):
+            if o["displayName"] == ONTOLOGY_NAME:
+                ont_id = o["id"]
+                break
+        print(f"  Found existing: {ont_id}")
+    else:
+        print(f"  [FAIL] Create ontology: HTTP {r.status_code} {r.text[:300]}")
+
+ont_result = "[FAIL]"
+if ont_id:
+    # Push definition
+    update_url = f"{ONT_API}/{ont_id}/updateDefinition"
+    r = requests.post(update_url, headers=headers, json={"definition": {"parts": parts}})
+    if r.status_code in (200, 201):
+        print(f"  [OK] Definition pushed")
+        ont_result = "[OK]"
+    elif r.status_code == 202:
+        ok = wait_lro(r, "updateDefinition")
+        ont_result = "[OK]" if ok else "[FAIL]"
+        print(f"  {'[OK]' if ok else '[FAIL]'} Definition push {'succeeded' if ok else 'failed'}")
+    else:
+        print(f"  [FAIL] updateDefinition: HTTP {r.status_code} {r.text[:300]}")
+
+# -- Ontology Summary --
+print()
+print("=" * 60)
+print(f"  ONTOLOGY: {ONTOLOGY_NAME:<38} {ont_result}")
+print("=" * 60)
+
+# -- Post-deploy: Deploy graph model via standalone notebook ----------
+if ont_result == "[OK]":
+    print()
+    print("Step 2: Deploy Graph Model")
+    print("-" * 40)
+
+    # NB_Deploy_Graph_Model is deployed as a repo item by the installer.
+    # Confirm it's present in the workspace, then run it directly --
+    # no GitHub download or notebook (re)creation needed.
+    token = notebookutils.credentials.getToken("pbi")
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    _items_r = requests.get(f"{API}/workspaces/{workspace_id}/items?type=Notebook", headers=headers)
+    _nb_id = None
+    if _items_r.status_code == 200:
+        for _it in _items_r.json().get("value", []):
+            if _it["displayName"] == "NB_Deploy_Graph_Model":
+                _nb_id = _it["id"]
+                break
+    if not _nb_id:
+        print("  [WARN] NB_Deploy_Graph_Model not found in workspace --")
+        print("         ensure the full item set was deployed via the installer.")
+
+    if _nb_id:
+        print(f"  Running NB_Deploy_Graph_Model notebook...")
+        print(f"  (validates bindings, builds graph definition, deploys,")
+        print(f"   waits for data load, runs smoke tests)")
+        print()
+        try:
+            notebookutils.notebook.run("NB_Deploy_Graph_Model", 600, {"useRootDefaultLakehouse": True})
+            graph_st = "[OK]"
+            print()
+            print(f"  [OK] NB_Deploy_Graph_Model completed successfully")
+        except Exception as _gm_err:
+            if "mssparkutilsrun-result+json" in str(_gm_err) or "NoSuchElementException" in str(_gm_err):
+                graph_st = "[OK]"
+                print()
+                print(f"  [OK] NB_Deploy_Graph_Model completed (ignoring Fabric result-parse bug)")
+            else:
+                graph_st = "[FAIL]"
+                _gm_err_str = str(_gm_err)
+                print()
+                if "404" in _gm_err_str or "not found" in _gm_err_str.lower():
+                    print(f"  [FAIL] Fabric cannot find NB_Deploy_Graph_Model (may need more time to index)")
+                    print(f"         Wait 1-2 minutes, then run NB_Deploy_Graph_Model manually from the workspace")
+                else:
+                    print(f"  [FAIL] NB_Deploy_Graph_Model failed: {_gm_err_str[:500]}")
+                    print(f"         Open NB_Deploy_Graph_Model manually for detailed diagnostics")
+    else:
+        graph_st = "[FAIL]"
+        print(f"  [FAIL] NB_Deploy_Graph_Model not found in workspace")
+        print(f"         Ensure the full item set was deployed via the installer, then run it")
+
+    print()
+    print("=" * 60)
+    print(f"  ONTOLOGY:    {ONTOLOGY_NAME:<36} {ont_result}")
+    print(f"  GRAPH:       NB_Deploy_Graph_Model{' ':>16} {graph_st}")
+    print("=" * 60)
 
 # METADATA ********************
 
