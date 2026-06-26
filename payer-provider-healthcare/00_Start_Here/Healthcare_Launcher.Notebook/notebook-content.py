@@ -525,12 +525,29 @@ else:
 
                 # -- Step 5a: Sync the lakehouse SQL analytics endpoint -----
                 # Direct Lake reads the gold tables through the lakehouse SQL
-                # analytics endpoint, whose metadata syncs ASYNCHRONOUSLY after
-                # the notebooks create the Delta tables. Refreshing the model
-                # before that sync lands fails the reframe with
-                # "source tables do not exist" (e.g. agg_medication_adherence).
-                # Force + poll the metadata sync so every newly created table is
-                # visible before we refresh. Best-effort: falls back to a wait.
+                # analytics endpoint, which syncs each Delta table individually
+                # and ASYNCHRONOUSLY after the notebooks write them. The sync is
+                # PER TABLE: a single table (e.g. agg_medication_adherence, whose
+                # schema is rewritten via overwriteSchema) can report a per-table
+                # Failure / not-yet-synced state even though the overall sync LRO
+                # returns "Succeeded". Refreshing the model in that window fails
+                # the reframe with "source tables do not exist". So we must inspect
+                # the PER-TABLE status returned by refreshMetadata (not just the
+                # LRO status) and retry until no table reports a failure. If a
+                # table never syncs, we surface its error to aid diagnosis.
+                def _parse_table_sync(payload):
+                    """Normalise a refreshMetadata result into a list of per-table
+                    dicts. The API returns either a bare list or a {'value':[...]}
+                    (or {'tablesSyncStatus':[...]}) envelope."""
+                    if isinstance(payload, list):
+                        rows = payload
+                    elif isinstance(payload, dict):
+                        rows = payload.get("value") or payload.get("tablesSyncStatus") or []
+                    else:
+                        rows = []
+                    return [r for r in rows if isinstance(r, dict)]
+
+                sql_ep_id = None
                 try:
                     lh_detail = requests.get(f"{FABRIC_API}/lakehouses/{lh_gold_id}", headers=headers)
                     sql_ep_id = None
@@ -542,25 +559,60 @@ else:
                     if sql_ep_id:
                         print(f"  Syncing SQL analytics endpoint metadata ({sql_ep_id})...")
                         synced = False
-                        for sync_attempt in range(1, 6):  # up to ~5 tries
+                        last_failures = []
+                        for sync_attempt in range(1, 9):  # up to ~8 tries
                             sr = requests.post(
                                 f"{FABRIC_API}/sqlEndpoints/{sql_ep_id}/refreshMetadata",
                                 headers=headers, json={},
                             )
+                            tbl_status = []
                             if sr.status_code == 202:
-                                st, _ = wait_lro(sr, headers, timeout=180)
-                                synced = (st == "Succeeded")
+                                st, body = wait_lro(sr, headers, timeout=180)
+                                if st == "Succeeded":
+                                    tbl_status = _parse_table_sync(body)
+                                else:
+                                    print(f"    refreshMetadata LRO {st} (attempt {sync_attempt})")
                             elif sr.status_code in (200, 201):
-                                synced = True
+                                try:
+                                    tbl_status = _parse_table_sync(sr.json())
+                                except Exception:
+                                    tbl_status = []
                             else:
                                 print(f"    refreshMetadata HTTP {sr.status_code} (attempt {sync_attempt})")
+
+                            last_failures = [
+                                t for t in tbl_status
+                                if str(t.get("status", "")).strip().lower()
+                                in ("failure", "failed", "error")
+                            ]
+                            if tbl_status and not last_failures:
+                                synced = True
+                            elif not tbl_status and sr.status_code in (200, 201, 202):
+                                # Could not read per-table detail -- trust the LRO
+                                synced = True
+
                             if synced:
                                 print(f"  SQL endpoint metadata synced (attempt {sync_attempt})")
                                 break
+
+                            if last_failures:
+                                names = ", ".join(
+                                    str(t.get("tableName", "?")) for t in last_failures[:6]
+                                )
+                                print(f"    Tables not synced yet (attempt {sync_attempt}): {names}")
                             time.sleep(30)
                             token = notebookutils.credentials.getToken("pbi")
                             headers["Authorization"] = f"Bearer {token}"
+
                         if not synced:
+                            if last_failures:
+                                print("  [WARN] SQL endpoint could not sync these tables:")
+                                for t in last_failures[:6]:
+                                    err = t.get("error") or {}
+                                    msg = ""
+                                    if isinstance(err, dict):
+                                        msg = err.get("message") or err.get("errorCode") or ""
+                                    print(f"    - {t.get('tableName', '?')}: {str(msg)[:160]}")
                             print("  [WARN] SQL endpoint sync not confirmed -- waiting 60s as fallback")
                             time.sleep(60)
                     else:
@@ -629,6 +681,21 @@ else:
                     elif attempt < MAX_ATTEMPTS:
                         print(f"  Retrying in 20s...")
                         time.sleep(20)
+                        # Re-sync the SQL analytics endpoint before retrying: a
+                        # "source tables do not exist" failure usually means a
+                        # table's metadata hadn't landed yet, and the sync is
+                        # eventually consistent -- another refreshMetadata pass
+                        # typically makes the lagging table visible.
+                        try:
+                            if sql_ep_id:
+                                rsr = requests.post(
+                                    f"{FABRIC_API}/sqlEndpoints/{sql_ep_id}/refreshMetadata",
+                                    headers=headers, json={},
+                                )
+                                if rsr.status_code == 202:
+                                    wait_lro(rsr, headers, timeout=180)
+                        except Exception:
+                            pass
                         token = notebookutils.credentials.getToken("pbi")
                         headers["Authorization"] = f"Bearer {token}"
                     else:
