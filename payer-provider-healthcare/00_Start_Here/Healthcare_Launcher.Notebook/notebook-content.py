@@ -1109,6 +1109,55 @@ if DEPLOY_STREAMING:
     print("  EVENTSTREAM — FULL TOPOLOGY WIRING VIA API")
     print("=" * 60)
 
+    # Resolve the API context + workspace items this block needs. These are
+    # defined locally (from the cell-scoped _api/_hdrs) so the wiring works
+    # regardless of whether earlier optional cells (data-gen / pipeline) ran
+    # and happened to set the global `headers`/`api_base`. json/time are only
+    # imported by the graph cell, which now runs AFTER this one — import here.
+    import json, time
+    headers = _hdrs
+    api_base = _api
+
+    # LRO poller for this cell (eventstream create / updateDefinition return 202).
+    # Defined locally so the wiring does not depend on the graph cell, which now
+    # runs AFTER this one.
+    def _wait_for_lro(response, label, timeout=180):
+        loc = response.headers.get("Location")
+        if not loc:
+            time.sleep(10)
+            return True
+        start = time.time()
+        retry = int(response.headers.get("Retry-After", 5))
+        while time.time() - start < timeout:
+            time.sleep(retry)
+            r = requests.get(loc, headers=headers)
+            if r.status_code == 200:
+                body = r.json()
+                status = body.get("status", "")
+                if status == "Succeeded":
+                    return True
+                if status in ("Failed", "Cancelled"):
+                    err = body.get("error", {})
+                    print(f"    [FAIL] {label}: {status} - {err.get('code', '')} {err.get('message', '')[:300]}")
+                    return False
+        print(f"    [FAIL] {label}: timed out after {timeout}s")
+        return False
+
+    _items_resp2 = requests.get(f"{_api}/items", headers=_hdrs)
+    items = _items_resp2.json().get("value", []) if _items_resp2.status_code == 200 else []
+
+    # KQL database id (Healthcare_RTI_DB) — needed for the Eventhouse destination
+    kql_db_id = ""
+    for _it in items:
+        if _it.get("type") == "KQLDatabase" and _it.get("displayName") == "Healthcare_RTI_DB":
+            kql_db_id = _it["id"]
+            break
+    if not kql_db_id:
+        for _it in items:
+            if _it.get("type") == "KQLDatabase":
+                kql_db_id = _it["id"]
+                break
+
     _es_name = "Healthcare_RTI_Eventstream"
     _es_id = None
     _bronze_lh_id = None
