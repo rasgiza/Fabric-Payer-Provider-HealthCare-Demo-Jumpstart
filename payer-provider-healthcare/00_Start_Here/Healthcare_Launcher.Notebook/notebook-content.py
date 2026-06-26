@@ -1328,10 +1328,13 @@ if DEPLOY_STREAMING:
     try:
         import urllib.request, zipfile, io as _io
 
-        # Load dashboard template from repo (downloaded in Cell 3)
+        # Load dashboard template — check any local extraction first, then fall
+        # back to fetching from the Jumpstart repo. ws_dir is not defined in the
+        # Jumpstart install flow, so resolve it safely from globals().
+        _ws_dir = globals().get("ws_dir")
         _dash_json_path = None
         for _candidate in [
-            os.path.join(ws_dir, "..", "rti_dashboard", "healthcare_rti_dashboard.json") if ws_dir else "",
+            os.path.join(_ws_dir, "..", "rti_dashboard", "healthcare_rti_dashboard.json") if _ws_dir else "",
             os.path.join("/tmp/healthcare-demo", "rti_dashboard", "healthcare_rti_dashboard.json"),
         ]:
             if _candidate and os.path.exists(_candidate):
@@ -1340,7 +1343,7 @@ if DEPLOY_STREAMING:
 
         # Also try fetching from repo URL if not found locally
         if not _dash_json_path:
-            _repo_url = "https://raw.githubusercontent.com/rasgiza/Fabric-Payer-Provider-HealthCare-Demo/main/rti_dashboard/healthcare_rti_dashboard.json"
+            _repo_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/rti_dashboard/healthcare_rti_dashboard.json"
             try:
                 _dash_resp = requests.get(_repo_url, timeout=30)
                 if _dash_resp.status_code == 200:
