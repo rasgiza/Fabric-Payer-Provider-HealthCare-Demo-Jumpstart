@@ -47,12 +47,19 @@ table fact_claim
 
 		changedProperty = Name
 
+	/// Count of claims flagged as High denial risk by the model. Use for revenue-cycle worklists; this is a model-estimated likelihood, not a confirmed denial.
+	measure 'High Risk Denials' = CALCULATE(COUNTROWS(fact_claim), fact_claim[denial_risk_category] = "High")
+		formatString: 0
+		lineageTag: a13b0ac4-6091-49f9-a093-83dfef6c7f0f
+
+		changedProperty = Name
+
+	/// Billed revenue on claims at High or Medium denial risk. Returns 0 (not blank) when no at-risk claims are in context.
 	measure 'At Risk Revenue' =
 			VAR _result =
 				CALCULATE(
 					SUM(fact_claim[billed_amount]),
-					fact_claim[denial_risk_category] = "High"
-						|| fact_claim[denial_risk_category] = "Medium"
+					fact_claim[denial_risk_category] IN { "High", "Medium" }
 				)
 			RETURN IF(ISBLANK(_result), 0, _result)
 		lineageTag: a6a466d3-36d3-4a12-9a2a-1fddc232bd31

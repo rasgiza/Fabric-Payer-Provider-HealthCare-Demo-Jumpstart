@@ -84,6 +84,19 @@ from datetime import datetime
 spark = SparkSession.builder.getOrCreate()
 print(f"🏆 Gold Transform Load (Production) - {datetime.now()}")
 
+# --- Delta write optimizations (idempotent) ---
+# Fabric enables V-Order + optimizeWrite by default; we set these defensively so
+# every saveAsTable below produces compacted, well-sized Parquet without manual OPTIMIZE.
+for _opt_k, _opt_v in [
+    ("spark.microsoft.delta.optimizeWrite.enabled", "true"),
+    ("spark.databricks.delta.optimizeWrite.enabled", "true"),
+    ("spark.databricks.delta.autoCompact.enabled", "true"),
+]:
+    try:
+        spark.conf.set(_opt_k, _opt_v)
+    except Exception:
+        pass
+
 # --- Variable Library (CI/CD across Dev/Test/Prod) ---
 try:
     import notebookutils
