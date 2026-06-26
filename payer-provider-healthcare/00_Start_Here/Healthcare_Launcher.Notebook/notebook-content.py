@@ -463,9 +463,11 @@ else:
             if existing_sm_id:
                 # Update in place -- keeps the GUID stable so the
                 # HealthcareAnalyticsDashboard report binding survives.
+                # No updateMetadata flag: we only swap the definition (TMDL),
+                # not the item metadata, so a .platform part isn't required.
                 print(f"  Updating SM in place: {SM_NAME} ({existing_sm_id}) with {len(parts)} TMDL parts...")
                 r = requests.post(
-                    f"{FABRIC_API}/semanticModels/{existing_sm_id}/updateDefinition?updateMetadata=true",
+                    f"{FABRIC_API}/semanticModels/{existing_sm_id}/updateDefinition",
                     headers=headers,
                     json={"definition": {"parts": parts}},
                 )
