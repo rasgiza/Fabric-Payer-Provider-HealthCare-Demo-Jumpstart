@@ -9,7 +9,7 @@
 # `default_lakehouse_workspace_id` keys. Those references therefore need no
 # rules here.
 #
-# This file only covers the two references that the automatic mechanisms cannot
+# This file only covers the one reference that the automatic mechanisms cannot
 # resolve on their own.
 find_replace:
   # 1. Direct Lake source for the HealthcareDemoHLS semantic model.
@@ -26,12 +26,3 @@ find_replace:
     item_name: "HealthcareDemoHLS"
     replace_value:
       _ALL_: "$workspace.$id"
-
-  # 2. HealthcareHLSAgent Data Agent — semantic_model datasource binding.
-  #    Its datasource.json carries a placeholder artifactId that is neither an
-  #    item logicalId nor the default workspace GUID, so it is not auto-resolved.
-  #    Bind it to the deployed HealthcareDemoHLS semantic model.
-  - find_value: "00000000-0000-0000-0000-000000000003"
-    item_type: "DataAgent"
-    replace_value:
-      _ALL_: "$items.SemanticModel.HealthcareDemoHLS.$id"
