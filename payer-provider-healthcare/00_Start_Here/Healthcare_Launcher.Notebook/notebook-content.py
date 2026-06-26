@@ -523,6 +523,56 @@ else:
                 token = notebookutils.credentials.getToken("pbi")
                 headers["Authorization"] = f"Bearer {token}"
 
+                # -- Step 5a: Sync the lakehouse SQL analytics endpoint -----
+                # Direct Lake reads the gold tables through the lakehouse SQL
+                # analytics endpoint, whose metadata syncs ASYNCHRONOUSLY after
+                # the notebooks create the Delta tables. Refreshing the model
+                # before that sync lands fails the reframe with
+                # "source tables do not exist" (e.g. agg_medication_adherence).
+                # Force + poll the metadata sync so every newly created table is
+                # visible before we refresh. Best-effort: falls back to a wait.
+                try:
+                    lh_detail = requests.get(f"{FABRIC_API}/lakehouses/{lh_gold_id}", headers=headers)
+                    sql_ep_id = None
+                    if lh_detail.status_code == 200:
+                        sql_ep_id = (lh_detail.json()
+                                     .get("properties", {})
+                                     .get("sqlEndpointProperties", {})
+                                     .get("id"))
+                    if sql_ep_id:
+                        print(f"  Syncing SQL analytics endpoint metadata ({sql_ep_id})...")
+                        synced = False
+                        for sync_attempt in range(1, 6):  # up to ~5 tries
+                            sr = requests.post(
+                                f"{FABRIC_API}/sqlEndpoints/{sql_ep_id}/refreshMetadata",
+                                headers=headers, json={},
+                            )
+                            if sr.status_code == 202:
+                                st, _ = wait_lro(sr, headers, timeout=180)
+                                synced = (st == "Succeeded")
+                            elif sr.status_code in (200, 201):
+                                synced = True
+                            else:
+                                print(f"    refreshMetadata HTTP {sr.status_code} (attempt {sync_attempt})")
+                            if synced:
+                                print(f"  SQL endpoint metadata synced (attempt {sync_attempt})")
+                                break
+                            time.sleep(30)
+                            token = notebookutils.credentials.getToken("pbi")
+                            headers["Authorization"] = f"Bearer {token}"
+                        if not synced:
+                            print("  [WARN] SQL endpoint sync not confirmed -- waiting 60s as fallback")
+                            time.sleep(60)
+                    else:
+                        print("  [WARN] SQL endpoint id not found -- waiting 60s as fallback")
+                        time.sleep(60)
+                except Exception as _sync_e:
+                    print(f"  [WARN] SQL endpoint sync skipped ({_sync_e}) -- waiting 60s as fallback")
+                    time.sleep(60)
+
+                token = notebookutils.credentials.getToken("pbi")
+                headers["Authorization"] = f"Bearer {token}"
+
                 pbi_base = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
                 refresh_url = f"{pbi_base}/datasets/{sm_id}/refreshes"
 
