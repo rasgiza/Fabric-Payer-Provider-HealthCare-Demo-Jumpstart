@@ -712,6 +712,189 @@ print("✓ fact_alerts created")
 
 # MARKDOWN ********************
 
+# ## 4c. Table & Column Descriptions (Data Agent grounding)
+#
+# Applies business descriptions to every Gold table and its key columns. These
+# comments are the metadata the **Fabric Data Agent** reads to understand the
+# star schema (grain, join keys, SCD2 `is_current`, and friendly value enums),
+# so it generates correct SQL and grounds answers in the right tables.
+#
+# Idempotent: uses `COMMENT ON TABLE` / `ALTER TABLE ... ALTER COLUMN ... COMMENT`,
+# so it both stamps freshly-created tables and updates descriptions on re-runs.
+
+# CELL ********************
+
+# ---------------------------------------------------------------------------
+# Apply table + column descriptions (idempotent — safe to re-run).
+# Wording is aligned with the HealthcareDemoHLS semantic model so the lakehouse
+# and the model tell the agent the same story.
+# ---------------------------------------------------------------------------
+
+def _esc(s):
+    """Escape single quotes for safe inline SQL string literals."""
+    return s.replace("'", "''")
+
+TABLE_COMMENTS = {
+    "dim_date": "Calendar date dimension. Grain: one row per calendar day, keyed by date_key (yyyymmdd integer). Join to fact tables on their *_date_key columns. Includes fiscal calendar plus weekend and holiday flags.",
+    "dim_patient": "Patient master dimension with SCD Type 2 history. Grain: one row per patient version — always filter is_current = 1 for the latest record. Keyed by patient_key (surrogate); patient_id is the natural key. Contains demographics, geography (zip_code links to dim_sdoh), and insurance attributes.",
+    "dim_provider": "Provider (clinician) dimension with SCD Type 2 history. Grain: one row per provider version — filter is_current = 1 for the current record. Keyed by provider_key; provider_id and npi_number are natural keys. Includes specialty, department, and home facility.",
+    "dim_payer": "Payer (insurance plan) dimension. Grain: one row per payer. Keyed by payer_key; payer_id is the natural key. payer_type values include Commercial, Medicare, and Medicaid. Used to analyze denials and reimbursement by plan.",
+    "dim_facility": "Facility (hospital/clinic) dimension. Grain: one row per facility. Keyed by facility_key; facility_id is the natural key. Includes facility_type, city/state, and bed_count.",
+    "dim_monitor": "Patient-monitoring device dimension sourced from the ontology PatientMonitor entity. Grain: one row per device. Keyed by monitor_key; device_id is the natural key. Carries surrogate FKs (patient_key, facility_key, location_key) for graph/ontology relationships.",
+    "dim_medication": "Medication reference dimension (RxNorm). Grain: one row per medication. Keyed by medication_key; rxnorm_code is the natural key. drug_class and therapeutic_area support adherence analysis; is_chronic flags maintenance medications.",
+    "dim_diagnosis": "Diagnosis reference dimension (ICD-10). Grain: one row per ICD-10 code. Keyed by diagnosis_key; icd_code is the natural key. icd_description is human-readable; is_chronic flags chronic conditions.",
+    "dim_sdoh": "Social Determinants of Health dimension at ZIP-code grain. Grain: one row per zip_code. Keyed by sdoh_key. Join to dim_patient on zip_code. Includes poverty_rate, food_desert_flag, social_vulnerability_index, and a derived risk_tier for health-equity analysis.",
+    "dim_location": "Hospital location dimension for real-time vitals and alerts. Grain: one row per care location (unit/floor/building). Keyed by location_key; is_critical_care flags ICU-type units.",
+    "fact_encounter": "Encounter-level fact for clinical and cost analytics. Grain: one row per patient encounter, keyed by encounter_key. Join to dim_patient (patient_key), dim_provider (provider_key), dim_facility (facility_key), and dim_date (encounter_date_key). Carries ML readmission predictions (readmission_risk_score 0-1, readmission_risk_category High/Medium/Low).",
+    "fact_claim": "Claim-level fact for revenue-cycle and denial analytics. Grain: one row per claim, keyed by claim_key. Join to dim_patient, dim_provider, dim_payer, dim_facility, dim_date (claim_date_key), and fact_encounter (encounter_key). Carries ML denial predictions (denial_flag, denial_risk_score 0-1, denial_risk_category, primary_denial_reason).",
+    "fact_prescription": "Prescription-fill fact for pharmacy and adherence analytics. Grain: one row per medication fill, keyed by prescription_key. Join to dim_patient, dim_medication, dim_payer, dim_provider, and dim_date (fill_date_key). Cost is split across total_cost, payer_paid, and patient_copay.",
+    "fact_diagnosis": "Encounter-to-diagnosis bridge fact. Grain: one row per diagnosis assigned to an encounter, keyed by fact_diagnosis_key. Join to fact_encounter (encounter_key), dim_diagnosis (diagnosis_key), and dim_patient. diagnosis_sequence = 1 marks the primary diagnosis.",
+    "fact_vitals": "Hourly aggregated patient vital-sign readings from real-time monitoring. Grain: one row per patient per hour per location. Join to dim_patient, dim_location, and dim_date. risk_flag and critical_reading_count support early-warning analytics.",
+    "fact_alerts": "Clinical alert fact generated from streaming vitals. Grain: one row per alert, keyed by alert_key. Join to dim_patient, dim_location, and dim_date. Tracks severity, acknowledgement, and response_time_minutes.",
+    "agg_readmission_by_date": "Pre-aggregated readmission metrics. Grain: one row per encounter_date_key and encounter_type. Use for readmission rate and risk trends without scanning fact_encounter.",
+    "agg_denial_by_date": "Pre-aggregated claim-denial metrics. Grain: one row per claim_date_key and claim_type. Provides denial counts, at_risk_amount, and risk distribution without scanning fact_claim.",
+    "agg_medication_adherence": "Pre-aggregated medication adherence (PDC). Grain: one row per patient_key and medication_key over a measurement period. pdc_score is Proportion of Days Covered (0-1); adherence_category is Adherent/Partial/Non-Adherent. Use for adherence questions instead of recomputing from fact_prescription.",
+    "etl_process_log": "Operational ETL audit log. Grain: one row per process execution. Records process_name, status, records_processed, and error_message for pipeline monitoring.",
+}
+
+COLUMN_COMMENTS = {
+    "dim_patient": {
+        "patient_key": "Surrogate primary key. Join target for *_key columns in fact tables.",
+        "patient_id": "Natural patient identifier (business key).",
+        "age_group": "Banded age group (e.g. 0-17, 18-34, 35-49, 50-64, 65+).",
+        "zip_code": "Patient ZIP code; join to dim_sdoh for social-determinant attributes.",
+        "insurance_type": "High-level coverage type (Commercial, Medicare, Medicaid, etc.).",
+        "is_current": "SCD2 flag — 1 = current version of the patient record. Always filter is_current = 1 for latest values.",
+    },
+    "dim_provider": {
+        "provider_key": "Surrogate primary key. Join target for provider_key in fact tables.",
+        "provider_id": "Natural provider identifier (business key).",
+        "npi_number": "National Provider Identifier.",
+        "specialty": "Provider clinical specialty.",
+        "is_current": "SCD2 flag — 1 = current version of the provider record.",
+    },
+    "dim_payer": {
+        "payer_key": "Surrogate primary key. Join target for payer_key in fact_claim/fact_prescription.",
+        "payer_name": "Insurance plan / payer name.",
+        "payer_type": "Payer category: Commercial, Medicare, or Medicaid.",
+    },
+    "dim_sdoh": {
+        "zip_code": "ZIP code; join key to dim_patient.zip_code.",
+        "poverty_rate": "Share of the ZIP population below the poverty line (0-1).",
+        "food_desert_flag": "1 if the ZIP is designated a food desert.",
+        "social_vulnerability_index": "CDC-style Social Vulnerability Index (0-1, higher = more vulnerable).",
+        "risk_tier": "Derived SDOH risk tier (e.g. Low/Medium/High) used for health-equity segmentation.",
+    },
+    "dim_medication": {
+        "medication_key": "Surrogate primary key. Join target for medication_key.",
+        "rxnorm_code": "RxNorm concept code (natural key).",
+        "drug_class": "Therapeutic drug class.",
+        "is_chronic": "1 if the medication is for a chronic/maintenance condition.",
+    },
+    "dim_diagnosis": {
+        "diagnosis_key": "Surrogate primary key. Join target for diagnosis_key.",
+        "icd_code": "ICD-10 diagnosis code (natural key).",
+        "icd_description": "Human-readable ICD-10 description.",
+        "is_chronic": "1 if the diagnosis represents a chronic condition.",
+    },
+    "fact_encounter": {
+        "encounter_key": "Surrogate primary key of the encounter.",
+        "encounter_date_key": "Date key of the encounter; join to dim_date.date_key.",
+        "patient_key": "FK to dim_patient.",
+        "provider_key": "FK to dim_provider.",
+        "facility_key": "FK to dim_facility.",
+        "encounter_type": "Encounter setting: Inpatient, Outpatient, or Emergency.",
+        "length_of_stay": "Inpatient length of stay in days.",
+        "total_charges": "Gross charges billed for the encounter (USD).",
+        "total_cost": "Cost incurred for the encounter (USD).",
+        "readmission_flag": "1 if this encounter was a readmission.",
+        "readmission_risk_score": "ML-predicted 30-day readmission probability (0-1).",
+        "readmission_risk_category": "Banded readmission risk: High, Medium, or Low.",
+    },
+    "fact_claim": {
+        "claim_key": "Surrogate primary key of the claim.",
+        "claim_date_key": "Date the claim was submitted; join to dim_date.date_key.",
+        "payment_date_key": "Date the claim was paid; inactive relationship to dim_date.",
+        "payer_key": "FK to dim_payer.",
+        "encounter_key": "FK to fact_encounter.",
+        "billed_amount": "Amount the provider billed for the claim (USD).",
+        "allowed_amount": "Contractually allowed amount after payer adjustment (USD).",
+        "paid_amount": "Amount actually paid by the payer (USD).",
+        "denial_flag": "1 if the claim was denied.",
+        "denial_risk_score": "ML-predicted probability the claim is denied (0-1).",
+        "denial_risk_category": "Banded denial risk: High, Medium, or Low.",
+        "primary_denial_reason": "Primary reason the claim was (or is predicted to be) denied.",
+    },
+    "fact_prescription": {
+        "prescription_key": "Surrogate primary key of the fill.",
+        "fill_date_key": "Date the prescription was filled; join to dim_date.date_key.",
+        "medication_key": "FK to dim_medication.",
+        "days_supply": "Days of medication supplied by this fill (drives PDC).",
+        "is_generic": "1 if a generic medication was dispensed.",
+        "is_chronic_medication": "1 if the medication is for a chronic condition.",
+        "total_cost": "Total cost of the fill (USD).",
+        "payer_paid": "Portion of the fill cost paid by the payer (USD).",
+        "patient_copay": "Patient out-of-pocket copay for the fill (USD).",
+    },
+    "fact_diagnosis": {
+        "fact_diagnosis_key": "Surrogate primary key.",
+        "encounter_key": "FK to fact_encounter.",
+        "diagnosis_key": "FK to dim_diagnosis.",
+        "diagnosis_sequence": "Order of the diagnosis on the encounter; 1 = primary diagnosis.",
+        "present_on_admission": "Present-on-admission indicator (Y/N/U/W).",
+    },
+    "agg_readmission_by_date": {
+        "encounter_date_key": "Date grain; join to dim_date.date_key.",
+        "total_encounters": "Total encounters for the date and encounter_type.",
+        "actual_readmissions": "Count of encounters that were readmissions.",
+        "avg_risk_score": "Average predicted readmission risk for the group.",
+        "high_risk_count": "Encounters classified High readmission risk.",
+    },
+    "agg_denial_by_date": {
+        "claim_date_key": "Date grain; join to dim_date.date_key.",
+        "total_claims": "Total claims for the date and claim_type.",
+        "actual_denials": "Count of denied claims.",
+        "at_risk_amount": "Billed dollars on claims flagged at denial risk (USD).",
+        "avg_risk_score": "Average predicted denial risk for the group.",
+    },
+    "agg_medication_adherence": {
+        "patient_key": "FK to dim_patient.",
+        "medication_key": "FK to dim_medication.",
+        "pdc_score": "Proportion of Days Covered over the measurement period (0-1).",
+        "adherence_category": "Adherence band: Adherent (PDC >= 0.8), Partial, or Non-Adherent.",
+        "gap_days": "Number of days in the period with no medication on hand.",
+        "is_chronic": "1 if the adherence row is for a chronic medication.",
+    },
+}
+
+_tbl_ok = 0
+for _tbl, _desc in TABLE_COMMENTS.items():
+    try:
+        spark.sql(f"COMMENT ON TABLE {_tbl} IS '{_esc(_desc)}'")
+        _tbl_ok += 1
+    except Exception as _e:
+        print(f"  [WARN] table comment {_tbl}: {_e}")
+
+_col_ok = 0
+for _tbl, _cols in COLUMN_COMMENTS.items():
+    for _col, _cdesc in _cols.items():
+        try:
+            spark.sql(f"ALTER TABLE {_tbl} ALTER COLUMN {_col} COMMENT '{_esc(_cdesc)}'")
+            _col_ok += 1
+        except Exception as _e:
+            print(f"  [WARN] column comment {_tbl}.{_col}: {_e}")
+
+print(f"✓ Applied {_tbl_ok} table descriptions and {_col_ok} column descriptions")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
+
 # ## 5. Summary
 
 # CELL ********************

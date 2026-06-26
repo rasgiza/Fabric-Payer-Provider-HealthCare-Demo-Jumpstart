@@ -66,6 +66,17 @@ from datetime import datetime
 spark = SparkSession.builder.getOrCreate()
 print(f"Spark version: {spark.version}")
 print(f"Processing started at: {datetime.now()}")
+
+# --- Delta write optimizations (idempotent) ---
+for _opt_k, _opt_v in [
+    ("spark.microsoft.delta.optimizeWrite.enabled", "true"),
+    ("spark.databricks.delta.optimizeWrite.enabled", "true"),
+    ("spark.databricks.delta.autoCompact.enabled", "true"),
+]:
+    try:
+        spark.conf.set(_opt_k, _opt_v)
+    except Exception:
+        pass
 print(f"\nSource: {BRONZE_SCHEMA}")
 print(f"Target: {SILVER_SCHEMA}")
 

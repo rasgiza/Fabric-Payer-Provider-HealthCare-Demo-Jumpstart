@@ -108,6 +108,7 @@ table fact_encounter
 
 		annotation PBI_FormatHint = {"isGeneralNumber":true}
 
+	/// Per-member-per-month cost: (encounter cost + prescription cost) / (distinct patients x months in context). Months derives from distinct year+month in dim_date, floored at 1 to avoid divide-by-zero; DIVIDE returns blank if members is 0. Validate the result against a typical PMPM benchmark (~$300-500) after deploy.
 	measure 'PMPM' =
 			VAR _encounter_cost = SUM(fact_encounter[total_cost])
 			VAR _rx_cost = CALCULATE(SUM(fact_prescription[total_cost]))
@@ -131,6 +132,7 @@ table fact_encounter
 		formatString: 0
 		lineageTag: a1b2c3d4-2222-4222-8222-000000000005
 
+	/// Composite quality index (0-1, higher is better): simple average of (1 - Readmission Rate), Adherent Rate, and (1 - Denial Rate). Adherent Rate and Denial Rate come from related tables, so always evaluate this at a grain where all three component measures are defined (e.g. overall or by date/facility), not by a column unique to one fact.
 	measure 'Quality Score' =
 			VAR _readmit_score = 1 - [Readmission Rate]
 			VAR _adherent_score = [Adherent Rate]

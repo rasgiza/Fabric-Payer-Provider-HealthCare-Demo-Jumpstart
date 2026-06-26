@@ -3,12 +3,6 @@ table agg_medication_adherence
 	lineageTag: 919f3a81-780d-43f4-808c-ceb52a04fd34
 	sourceLineageTag: [dbo].[agg_medication_adherence]
 
-	measure 'High Risk Denials' = CALCULATE(COUNTROWS(fact_claim), fact_claim[denial_risk_category] = "High")
-		formatString: 0
-		lineageTag: a13b0ac4-6091-49f9-a093-83dfef6c7f0f
-
-		changedProperty = Name
-
 	measure 'Adherent Rate' =
 			
 			VAR _num = CALCULATE(COUNTROWS(agg_medication_adherence), agg_medication_adherence[adherence_category] = "Adherent")

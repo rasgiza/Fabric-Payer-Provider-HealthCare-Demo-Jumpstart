@@ -65,6 +65,17 @@ from datetime import datetime
 spark = SparkSession.builder.getOrCreate()
 print(f"Spark version: {spark.version}")
 print(f"Processing started at: {datetime.now()}")
+
+# --- Delta write optimizations (idempotent) ---
+for _opt_k, _opt_v in [
+    ("spark.microsoft.delta.optimizeWrite.enabled", "true"),
+    ("spark.databricks.delta.optimizeWrite.enabled", "true"),
+    ("spark.databricks.delta.autoCompact.enabled", "true"),
+]:
+    try:
+        spark.conf.set(_opt_k, _opt_v)
+    except Exception:
+        pass
 print(f"\nSource (Bronze): {BRONZE}")
 print(f"Source (Silver Stage): {SILVER_STAGE}")
 print(f"Target (Silver ODS): {SILVER_ODS}")
@@ -263,7 +274,7 @@ encounters_enriched = encounters_clean
 # Join with patients (always has patient_id)
 encounters_enriched = encounters_enriched \
     .join(
-        patients_clean.select("patient_id", "first_name", "last_name", "date_of_birth"),
+        broadcast(patients_clean.select("patient_id", "first_name", "last_name", "date_of_birth")),
         "patient_id",
         "left"
     ) \
@@ -273,7 +284,7 @@ encounters_enriched = encounters_enriched \
 # Join with providers (always has provider_id)
 encounters_enriched = encounters_enriched \
     .join(
-        providers_clean.select("provider_id", "first_name", "last_name", "specialty"),
+        broadcast(providers_clean.select("provider_id", "first_name", "last_name", "specialty")),
         "provider_id",
         "left"
     ) \
@@ -284,11 +295,11 @@ encounters_enriched = encounters_enriched \
 if "facility_id" in encounters_clean.columns:
     encounters_enriched = encounters_enriched \
         .join(
-            ref_facilities.select(
+            broadcast(ref_facilities.select(
                 col("id").alias("fac_id"),
                 col("name").alias("facility_name"),
                 col("type").alias("facility_type")
-            ),
+            )),
             encounters_clean["facility_id"] == col("fac_id"),
             "left"
         ) \
@@ -332,11 +343,11 @@ claims_enriched = claims_clean
 if "payer_id" in claims_clean.columns:
     claims_enriched = claims_enriched \
         .join(
-            ref_payers.select(
+            broadcast(ref_payers.select(
                 col("payer_id").alias("payer_id_ref"),
                 col("payer_name"),
                 col("payer_type")
-            ),
+            )),
             claims_clean["payer_id"] == col("payer_id_ref"),
             "left"
         ) \
@@ -398,7 +409,7 @@ if "medication_name" in ref_medications.columns:
             ref_med_select.append(col(c))
     prescriptions_enriched = prescriptions_enriched \
         .join(
-            ref_medications.select(*ref_med_select),
+            broadcast(ref_medications.select(*ref_med_select)),
             prescriptions_clean["medication_name"] == col("ref_med_name"),
             "left"
         ) \
@@ -452,7 +463,7 @@ if icd_join_col in ref_icd_codes.columns:
             icd_select_cols.append(col(c).alias(f"icd_{c}") if c in diagnoses_clean.columns else col(c))
     diagnoses_enriched = diagnoses_enriched \
         .join(
-            ref_icd_codes.select(*icd_select_cols),
+            broadcast(ref_icd_codes.select(*icd_select_cols)),
             diagnoses_clean["icd_code"] == col("ref_icd_code"),
             "left"
         ) \
