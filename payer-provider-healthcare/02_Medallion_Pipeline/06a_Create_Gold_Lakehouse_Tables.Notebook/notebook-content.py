@@ -572,6 +572,12 @@ print("✓ agg_denial_by_date created")
 # CELL ********************
 
 # agg_medication_adherence (PDC by patient + medication)
+# NOTE: total_fills/total_days_supply/days_in_period/covered_days/gap_days are
+# BIGINT here to match 06b's actual output (count()/sum()/long arithmetic all
+# produce long) and the semantic model TMDL (int64). If this shell were INT,
+# 06b's overwriteSchema=true would flip the column types INT->BIGINT in place,
+# which wedges the lakehouse SQL analytics endpoint for this table and makes the
+# Direct Lake semantic-model refresh fail with "source tables do not exist".
 spark.sql("""
     CREATE TABLE IF NOT EXISTS agg_medication_adherence (
         adherence_key BIGINT,
@@ -581,16 +587,16 @@ spark.sql("""
         therapeutic_area STRING,
         measurement_period_start INT,
         measurement_period_end INT,
-        total_fills INT,
-        total_days_supply INT,
-        days_in_period INT,
-        covered_days INT,
+        total_fills BIGINT,
+        total_days_supply BIGINT,
+        days_in_period BIGINT,
+        covered_days BIGINT,
         pdc_score DOUBLE,
         adherence_category STRING,
         total_medication_cost DOUBLE,
         total_payer_cost DOUBLE,
         total_patient_cost DOUBLE,
-        gap_days INT,
+        gap_days BIGINT,
         is_chronic INT,
         _load_timestamp TIMESTAMP
     )
