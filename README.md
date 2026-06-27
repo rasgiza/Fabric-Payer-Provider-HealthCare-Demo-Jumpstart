@@ -438,12 +438,12 @@ The copy-paste-ready instructions, verified answers, and the API-vs-UI deploymen
    **Section 3** of **[HLS_AGENT_PREP_FOR_AI.md](HLS_AGENT_PREP_FOR_AI.md)** and paste it in.
 2. *(Optional)* **Simplify the data schema** — same pane → deselect fields Copilot doesn't need
    and add synonyms for terms users actually say.
-3. **Verified answers** — these are created in **Power BI Desktop**, not the service. Build a
-   visual that shows the answer (use the DAX in **Section 4** of
-   **[HLS_AGENT_PREP_FOR_AI.md](HLS_AGENT_PREP_FOR_AI.md)** as the spec), then
-   **right-click the visual → "Set up verified answer"** and add the phrasings users will ask.
-   After you publish/save, the entries appear back in the service under **Prep data for AI →
-   Verified answers**.
+3. **Verified answers** — set these in the **service** (Direct Lake isn't supported in Power BI
+   Desktop). In a Copilot-enabled workspace, open a report on the model → **Edit** mode → select
+   the visual that shows the answer (use the DAX in **Section 4** of
+   **[HLS_AGENT_PREP_FOR_AI.md](HLS_AGENT_PREP_FOR_AI.md)** as the spec) → on the visual's
+   **… menu → "Set up a verified answer"** and add the phrasings users will ask. The entries
+   appear under **Prep data for AI → Verified answers** on the model.
 4. **Re-test and iterate** — start lean; add an instruction or verified answer whenever you
    spot a wrong answer.
 
