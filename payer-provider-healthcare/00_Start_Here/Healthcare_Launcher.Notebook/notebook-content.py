@@ -65,8 +65,10 @@
 # 1. Edit the **CONFIGURATION** cell below if you want to skip data generation or enable streaming.
 # 2. **Run All**.
 # 3. When complete, open the **HealthcareAnalyticsDashboard** Power BI report, the **Healthcare RTI Dashboard** (real-time KQL), or chat with the **HealthcareHLSAgent** Data Agent.
-# 4. *(Streaming)* Enable OneLake availability on **Healthcare_RTI_DB**, then run the
-#    streaming cell — the Eventstream connection string is fetched automatically.
+# 4. *(Streaming)* Nothing extra is required — **Run All** wires the Eventstream and
+#    runs the Simulator → KQL → Scoring pipeline automatically. Enabling OneLake
+#    availability on **Healthcare_RTI_DB** is optional (only for querying the KQL
+#    tables as Delta from Spark) and can be done any time afterward.
 
 # CELL ********************
 
@@ -721,13 +723,14 @@ print("=" * 60)
 #   2. Runs NB_RTI_Setup_Eventhouse (creates KQL tables, discovers Kusto URI)
 #   3. Wires Eventstream full topology via API:
 #      Custom Endpoint → Stream → Eventhouse + Lakehouse + Activator
-#   4. Enables OneLake availability reminder (one-time portal step)
 #
-# After this cell, the user:
-#   - Enables OneLake availability on Healthcare_RTI_DB (one-time, in portal)
-#   - Runs the next cell — it auto-fetches the Eventstream connection string
-#     via REST API and runs NB_RTI_Event_Simulator → events stream continuously
-#   - Then runs scoring notebooks (Fraud, Care Gap, HighCost) on the live data
+# After this cell, the user just runs the next cell — it auto-fetches the
+# Eventstream connection string via REST API, runs NB_RTI_Event_Simulator
+# (events stream continuously), then runs the scoring notebooks (Fraud, Care
+# Gap, HighCost) on the live data. Scoring reads the KQL Eventhouse natively
+# via the Kusto SDK, so OneLake availability is NOT required. Enabling OneLake
+# availability on Healthcare_RTI_DB is optional (only to query the KQL tables
+# as Delta from Spark) and can be done any time afterward.
 # ============================================================================
 
 if DEPLOY_STREAMING:
@@ -1458,23 +1461,24 @@ if DEPLOY_STREAMING:
             print(f"\n  Eventstream URL: {_es_url}")
             print()
             print("  ┌──────────────────────────────────────────────────────────────┐")
-            print("  │  EVENTSTREAM TOPOLOGY WIRED — ONE STEP REMAINING             │")
+            print("  │  EVENTSTREAM TOPOLOGY WIRED — NOTHING REQUIRED, JUST CONTINUE │")
             print("  │                                                              │")
-            print("  │  STEP A — Enable OneLake Availability (one-time, in portal)  │")
+            print("  │  NEXT — Just run the NEXT CELL                               │")
+            print("  │    The connection string is fetched automatically via the    │")
+            print("  │    Eventstream REST API — no portal copy/paste needed.        │")
+            print("  │    The next cell runs the Simulator → KQL → Scoring pipeline. │")
+            print("  │    Scoring reads the KQL Eventhouse natively (Kusto SDK), so  │")
+            print("  │    it does NOT need OneLake Availability. Do not stop or wait.│")
+            print("  │                                                              │")
+            print("  │  OPTIONAL (later) — Enable OneLake Availability              │")
+            print("  │    Only needed if you also want to query the KQL tables as    │")
+            print("  │    Delta from Spark / build OneLake shortcuts. Not required    │")
+            print("  │    for the streaming demo or scoring. You can enable it any    │")
+            print("  │    time afterward — no need to rerun this cell or the next:    │")
             print("  │    1. Open Healthcare_RTI_DB in the Fabric portal            │")
-            print("  │    2. In the Database details pane → OneLake section         │")
+            print("  │    2. Database details pane → OneLake section                │")
             print("  │    3. Set Availability → Enabled                             │")
             print("  │    4. Check 'Apply to existing tables' → confirm             │")
-            print("  │    This exposes KQL tables as Delta in OneLake so scoring    │")
-            print("  │    notebooks can read them via Spark.                        │")
-            print("  │                                                              │")
-            print("  │  STEP B — Just run the NEXT CELL                             │")
-            print("  │    The connection string is now fetched automatically via    │")
-            print("  │    the Eventstream REST API — no portal copy/paste needed.    │")
-            print("  │    The next cell wires OneLake shortcuts + triggers the       │")
-            print("  │    PL_Healthcare_RTI pipeline (Simulator → Scoring).         │")
-            print("  │                                                              │")
-            print("  │  One portal step (A), then everything else is automatic.     │")
             print("  └──────────────────────────────────────────────────────────────┘")
         else:
             print("  [WARN] Eventstream topology update failed — item may be empty.")
