@@ -1,10 +1,10 @@
-# Fabric Payer/Provider Healthcare Demo
+# Healthcare Payer/Provider Analytics on Microsoft Fabric
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Microsoft Fabric](https://img.shields.io/badge/Microsoft-Fabric-blue.svg)](https://learn.microsoft.com/fabric/)
 [![Jumpstart: payer-provider-healthcare](https://img.shields.io/badge/Jumpstart-payer--provider--healthcare-7B68EE.svg)](https://github.com/microsoft/fabric-jumpstart)
 
-> **A Microsoft Fabric Jumpstart** &mdash; one-click deployment of a complete **Healthcare Payer/Provider Analytics** solution. No Python install, no `.env` files, no manual setup.
+> **A Microsoft Fabric Jumpstart** &mdash; one-click deployment of a complete **Healthcare Payer/Provider Analytics** solution: Medallion lakehouse → Direct Lake semantic model → Data Agent → Real-Time Intelligence → Knowledge Graph. No Python install, no `.env` files, no manual setup.
 
 ```python
 # Install via the Fabric Jumpstart catalog (run inside a setup notebook,
@@ -55,23 +55,23 @@ fabric_jumpstart.install("payer-provider-healthcare", update_existing=True)
 3. [What Gets Deployed](#what-gets-deployed)
    - [Data Volumes (Default)](#data-volumes-default)
 4. [Architecture](#architecture)
-5. [Deployment Flow](#deployment-flow)
-   - [What happens when you click "Run All"](#what-happens-when-you-click-run-all)
-   - [Deployment Stages Detail](#deployment-stages-detail)
+5. [Deployment Flow — What "Run All" Does](#deployment-flow--what-run-all-does)
 6. [After Deployment](#after-deployment)
    - [Explore the Data](#explore-the-data)
-   - [Sample Questions — Data Agents](#sample-questions--data-agents)
-   - [Data Agent Reference](#data-agent-reference)
    - [Power BI Dashboard](#power-bi-dashboard)
-7. [Real-Time Intelligence (RTI)](#real-time-intelligence-rti--3-payerprovider-use-cases)
+7. [AI & Agents](#ai--agents)
+   - [The Data Agent — HealthcareHLSAgent](#the-data-agent--healthcarehlsagent)
+   - [Sample Questions](#sample-questions)
+   - [Prep Data for AI (model-owner, one-time)](#prep-data-for-ai-model-owner-one-time)
+   - [Ontology Agent (Graph) — Manual UI Setup](#ontology-agent-graph--manual-ui-setup)
+   - [Azure AI Foundry Orchestrator (optional)](#azure-ai-foundry-orchestrator-optional)
+8. [Real-Time Intelligence (optional)](#real-time-intelligence-optional)
    - [Claims Fraud Detection](#use-case-1-claims-fraud-detection)
    - [Care Gap Closure](#use-case-2-care-gap-closure-at-point-of-care)
    - [High-Cost Member Trajectory](#use-case-3-high-cost-member-trajectory)
    - [RTI Data Tables](#rti-data-tables)
-   - [RTI Ingestion Architecture](#rti-ingestion-architecture)
-8. [Ontology & Graph Model (Automated)](#ontology--graph-model-automated)
-9. [Data Agents](#data-agents)
-10. [Data Activator / Reflex Setup](#set-up-data-activator-alerts-manual--15-min)
+   - [How Streaming Works](#how-streaming-works)
+9. [Data Activator / Reflex Alerts](#data-activator--reflex-alerts-manual--15-min)
 10. [Run Incremental Loads](#run-incremental-loads)
 11. [Configuration Options](#configuration-options)
 12. [Prerequisites](#prerequisites)
@@ -195,11 +195,11 @@ If you don't yet have access to the Jumpstart catalog (`fabric_jumpstart` packag
    *(Workspace &rarr; Import &rarr; Notebook &rarr; upload as `.py` source)*.
 3. **Run All** &mdash; wait ~15-20 minutes.
 
-> **That's it &mdash; no configuration needed.** The launcher pulls from the public repo `rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart` by default. Edit the CONFIG cell before running to customise &mdash; for example set `DEPLOY_STREAMING = True` to enable Real-Time Intelligence (Eventhouse + KQL + scoring), or point `GITHUB_OWNER` to your own fork.
+> **That's it &mdash; no configuration needed.** The launcher pulls from the public repo `rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart` by default. Edit the CONFIG cell before running to customise &mdash; for example set `DEPLOY_STREAMING = False` to skip the Real-Time Intelligence stack (batch-only demo).
 >
-> **First deployment** deploys ETL + Agents (Cells 1-11). Set `DEPLOY_STREAMING = True` for the full RTI stack (Cells 12-13).
+> The launcher runs the batch path (data → ETL → semantic model → ontology) and, when `DEPLOY_STREAMING = True` (the default), the full RTI stack (Eventhouse + KQL + Eventstream + scoring + RTI Dashboard).
 
-The launcher creates a deploy lakehouse, downloads the repo, deploys all artifacts in the correct stage order, generates sample data, runs the ETL pipeline, creates the semantic model, deploys the ontology + graph, and patches Data/Graph Agents — fully automated. RTI is opt-in via `DEPLOY_STREAMING = True`.
+The launcher generates sample data, runs the ETL pipeline, creates and refreshes the semantic model, deploys the RTI streaming topology and runs the scoring notebooks, then deploys the ontology + graph model — fully automated. RTI can be turned off via `DEPLOY_STREAMING = False`.
 
 ## What Gets Deployed
 
@@ -208,16 +208,16 @@ The launcher creates a deploy lakehouse, downloads the repo, deploys all artifac
 | **Lakehouses (4)** | `lh_bronze_raw`, `lh_silver_stage`, `lh_silver_ods`, `lh_gold_curated` | Medallion architecture storage |
 | **Notebooks (7)** | 5 ETL + `NB_Generate_Sample_Data` + `NB_Generate_Incremental_Data` | Spark-based data processing |
 | **Pipelines (2)** | `PL_Healthcare_Full_Load`, `PL_Healthcare_Master` | Orchestration with full/incremental modes |
-| **Semantic Model** | `HealthcareDemoHLS` | Star schema for Power BI (facts + dimensions) |
-| **Data Agent** | `HealthcareHLSAgent` | Copilot AI agent — lakehouse + semantic model (SQL aggregations) |
-| **Graph Agent** | `Healthcare Ontology Agent` | Copilot AI agent — ontology graph traversal (entity lookups, care pathways) |
-| **Ontology** | `Healthcare_Demo_Ontology_HLS` | GraphQL entity model — auto-deployed by Cell 5 (API) |
-| **Power BI Report** | `HealthcareAnalyticsDashboard` | 6 pages, 60+ visuals — auto-deployed by fabric-cicd |
+| **Semantic Model** | `HealthcareDemoHLS` | Star schema for Power BI (facts + dimensions), Direct Lake |
+| **Data Agent** | `HealthcareHLSAgent` | Copilot AI agent — sources: `HealthcareDemoHLS` semantic model + `lh_gold_curated` gold lakehouse |
+| **Ontology** | `Healthcare_Demo_Ontology_HLS` | GraphQL entity model (12 entities, 18 relationships) — auto-deployed by Cell 7 |
+| **Graph Agent** | `Healthcare Ontology Agent` | Copilot AI agent — ontology graph traversal (entity lookups, care pathways) — created manually in the UI |
+| **Power BI Report** | `HealthcareAnalyticsDashboard` | 6 pages, 60+ visuals — deployed as a native item bound to the semantic model |
 | **Eventhouse** ⚡ | `Healthcare_RTI_Eventhouse` | Git-tracked RTI compute engine (`DEPLOY_STREAMING` only) |
-| **KQL Database** ⚡ | `Healthcare_RTI_DB` | Git-tracked with schema (6 tables + streaming policies) (`DEPLOY_STREAMING` only) |
+| **KQL Database** ⚡ | `Healthcare_RTI_DB` | 7 KQL tables (1 landing + 3 typed input + 3 scored output) + streaming/update policies (`DEPLOY_STREAMING` only) |
 | **Eventstream** ⚡ | `Healthcare_RTI_Eventstream` | Custom Endpoint → Eventhouse + Lakehouse + Activator (`DEPLOY_STREAMING` only) |
-| **RTI Notebooks (5)** ⚡ | Event Simulator, Setup, 3 Scoring (Fraud, Care Gap, HighCost) | RTI for fraud, care gaps, high-cost trajectory (`DEPLOY_STREAMING` only) |
-| **RTI Dashboard** ⚡ | `Healthcare RTI Dashboard` | 4-page KQL dashboard, 30s auto-refresh (`DEPLOY_STREAMING` only) |
+| **RTI Notebooks (5)** ⚡ | Setup, Event Simulator, 3 Scoring (Fraud, Care Gap, HighCost) | RTI for fraud, care gaps, high-cost trajectory (`DEPLOY_STREAMING` only) |
+| **RTI Dashboard** ⚡ | `Healthcare RTI Dashboard` | Real-time KQL dashboard (`DEPLOY_STREAMING` only) |
 
 > ⚡ = Only deployed when `DEPLOY_STREAMING = True`
 
@@ -269,7 +269,7 @@ Dual-path design: **Batch ETL** (authoritative, historical) + **Real-Time Intell
 │                     Batch ETL + Real-Time Intelligence                       │
 └──────────────────────────────────────────────────────────────────────────────┘
 
-    BATCH PATH (existing)                    STREAMING PATH (new)
+    BATCH PATH (cold)                        STREAMING PATH (hot)
     Historical, authoritative,               Operational, sub-minute,
     runs daily / on-demand                   runs continuously
     ─────────────────────────                ────────────────────────
@@ -291,14 +291,14 @@ Dual-path design: **Batch ETL** (authoritative, historical) + **Real-Time Intell
     │ lh_silver    │                         │ Healthcare_RTI_DB   │
     │ stage → ODS  │                         │ (KQL Database)      │
     │ (cleansed,   │                         │                     │
-    │  enriched)   │                         │ claims_events       │
-    └──────┬───────┘                         │ adt_events          │
-           │                                 │ rx_events           │
-    03_Gold_Star_Schema                      └─────────┬───────────┘
-           │                                           │
-           ▼                                           │
-    ┌──────────────────────┐          reads dims        │
-    │   lh_gold_curated    │◄──────────────────────────┤
+    │  enriched)   │                         │ rti_all_events      │
+    └──────┬───────┘                         │   │ update policies  │
+           │                                 │   ▼                  │
+    03_Gold_Star_Schema                      │ claims_events        │
+           │                                 │ adt_events           │
+           ▼                                 │ rx_events            │
+    ┌──────────────────────┐                 └─────────┬───────────┘
+    │   lh_gold_curated    │◄──reads dims──────────────┤
     │                      │   to enrich events         │
     │ DIMENSIONS (SCD2):   │                            │
     │  dim_patient         │──────────────┐             │
@@ -308,23 +308,20 @@ Dual-path design: **Batch ETL** (authoritative, historical) + **Real-Time Intell
     │  dim_diagnosis       │              ▼             ▼
     │  dim_medication      │    ┌──────────────────────────────┐
     │  dim_sdoh            │    │     SCORING NOTEBOOKS         │
-    │  care_gaps           │    │                              │
-    │  hedis_measures      │    │  NB_RTI_Fraud_Detection      │
-    │                      │    │    reads: claims_events      │
-    │ FACTS:               │    │    joins: dim_provider,      │
-    │  fact_encounter      │    │           fact_claim (hist)  │
-    │  fact_claim          │    │    writes: fraud_scores      │
-    │  fact_prescription   │    │                              │
-    │  fact_diagnosis      │    │  NB_RTI_Care_Gap_Alerts      │
-    │                      │    │    reads: adt_events         │
-    │ AGGREGATES:          │    │    joins: care_gaps,         │
-    │  agg_readmission     │    │           hedis_measures,    │
-    │  agg_med_adherence   │    │           dim_patient        │
-    │                      │    │    writes: care_gap_alerts   │
-    └──────────┬───────────┘    │                              │
-               │                │  NB_RTI_HighCost_Trajectory  │
-               │                │    reads: claims + adt events│
-               │                │    joins: dim_patient         │
+    │  care_gaps           │    │   (read KQL via Kusto SDK)    │
+    │  hedis_measures      │    │                              │
+    │                      │    │  NB_RTI_Fraud_Detection      │
+    │ FACTS:               │    │    reads: claims_events      │
+    │  fact_encounter      │    │    writes: fraud_scores      │
+    │  fact_claim          │    │                              │
+    │  fact_prescription   │    │  NB_RTI_Care_Gap_Alerts      │
+    │  fact_diagnosis      │    │    reads: adt_events         │
+    │                      │    │    joins: care_gaps,         │
+    │ AGGREGATES:          │    │           hedis_measures     │
+    │  agg_readmission     │    │    writes: care_gap_alerts   │
+    │  agg_med_adherence   │    │                              │
+    │                      │    │  NB_RTI_HighCost_Trajectory  │
+    └──────────┬───────────┘    │    reads: claims + adt events│
                │                │    writes: highcost_alerts   │
                │                └──────────────┬───────────────┘
                │                               │
@@ -332,58 +329,89 @@ Dual-path design: **Batch ETL** (authoritative, historical) + **Real-Time Intell
     ┌────────────────────┐      ┌──────────────────────────────┐
     │ BATCH CONSUMPTION  │      │ REAL-TIME CONSUMPTION        │
     │                    │      │                              │
-    │ Semantic Model     │      │ KQL Dashboard                │
+    │ Semantic Model     │      │ KQL Real-Time Dashboard      │
     │ (Direct Lake)      │      │  • Fraud risk heatmap        │
-    │                    │      │  • Care gap closure live      │
+    │                    │      │  • Care gap closure live     │
     │ Data Agent         │      │  • High-cost trend ticker    │
     │ (Copilot AI)       │      │                              │
-    │                    │      │ Data Agent                   │
-    │ Ontology + Graph   │      │  (queries RTI tables too)    │
+    │                    │      │ Activator (Reflex)           │
+    │ Ontology + Graph   │      │  • Teams / Email / PA        │
     │ (Knowledge Graph)  │      │                              │
-    │ Power BI Reports   │      │ Activator (Reflex)           │
-    └────────────────────┘      │  • Teams / Email / PA       │
-                                └──────────────────────────────┘
+    │ Power BI Reports   │      │ (Delta copies rti_* land in  │
+    │                    │      │  lh_gold_curated for history)│
+    └────────────────────┘      └──────────────────────────────┘
 ```
 
-## Deployment Flow
+## Deployment Flow — What "Run All" Does
 
-The launcher notebook (`Healthcare_Launcher.Notebook`) is the post-deployment orchestrator. The Fabric Jumpstart installer creates the workspace items from the repo ahead of time &mdash; this notebook then runs the runtime steps that bring the workspace to life.
-
-### What happens when you click "Run All"
+The launcher notebook (`Healthcare_Launcher.Notebook`) is the post-deployment orchestrator. The Fabric Jumpstart installer creates the workspace items from the repo ahead of time (Lakehouses, Notebooks, Pipelines, Semantic Model, Report, RTI items, Data Agent) and copies the knowledge docs to `lh_gold_curated/Files/healthcare_knowledge/`. This notebook then runs the runtime steps that bring the workspace to life.
 
 | Cell | What It Does |
 |------|--------------|
-| **0** | Markdown header / welcome |
-| **CONFIG** | Set `GITHUB_OWNER`, `DEPLOY_STREAMING`, knowledge-doc / data / pipeline / streaming flags |
-| **1** | Upload healthcare knowledge docs from GitHub raw → `lh_gold_curated/Files/healthcare_knowledge/` |
-| **2** | Run `NB_Generate_Sample_Data` — ~10K patients, 100K encounters, HEDIS measures |
-| **3** | Trigger `PL_Healthcare_Master` with `load_mode=full` — Bronze → Silver → Gold ETL (~8-15 min) |
-| **4** | Create & refresh `HealthcareDemoHLS` semantic model (Direct Lake, TMDL) |
-| **4b** | Deploy `HealthcareAnalyticsDashboard` Power BI report → bind to refreshed semantic model |
-| **5** | Deploy ontology (`Healthcare_Demo_Ontology_HLS`) + auto-provision Graph Model |
-| **6** | Patch `HealthcareHLSAgent` datasources with real lakehouse / semantic model IDs |
-| **7** ⚡ | Wire RTI Eventstream topology (Custom Endpoint → Eventhouse + Lakehouse + Activator) and create the KQL Dashboard |
-| **8** ⚡ | Run RTI pipeline: Setup Eventhouse → Event Simulator → scoring notebooks (Fraud, Care Gap, HighCost). **Requires the Eventstream connection string — see Cell 8 instructions.** |
-| **9** | Organize workspace folders + print deployment summary |
+| **Markdown** | Welcome / overview header |
+| **CONFIG** | Set `GENERATE_DATA`, `RUN_PIPELINE`, `DEPLOY_STREAMING` |
+| **Constants** | Internal source refs (`GITHUB_OWNER` / `REPO` / `BRANCH`) — do not edit |
+| **CELL 2** | Run `NB_Generate_Sample_Data` — ~10K patients, 100K encounters, HEDIS measures |
+| **CELL 3** | Trigger `PL_Healthcare_Master` with `load_mode=full` — Bronze → Silver → Gold ETL (~8-15 min) |
+| **CELL 4** | Create & refresh `HealthcareDemoHLS` semantic model (Direct Lake, TMDL; patches lakehouse IDs). The `HealthcareAnalyticsDashboard` report binds to it by name. |
+| **CELL 5** ⚡ | Deploy RTI streaming topology (Eventhouse + KQL DB + Eventstream Custom Endpoint → KQL / Lakehouse / Activator) and the RTI Real-Time Dashboard |
+| **CELL 6** ⚡ | Run RTI pipeline: auto-fetch connection string → Setup Eventhouse → Event Simulator → verify → scoring notebooks (Fraud, Care Gap, HighCost) |
+| **CELL 7** | Deploy ontology (`Healthcare_Demo_Ontology_HLS`) + auto-provision the Graph Model |
 
 > ⚡ = Only runs when `DEPLOY_STREAMING = True`
+>
+> **Why does the ontology/graph step run last?** Its graph-build is the longest-running operation; placing it after RTI ensures a long graph build (or a session timeout during it) never blocks the Real-Time Intelligence items.
 
 ## After Deployment
 
 ### Explore the Data
-- Open **lh_gold_curated** → Tables → you'll see star schema tables (fact_encounters, dim_patients, etc.)
+- Open **lh_gold_curated** → Tables → you'll see star schema tables (`fact_encounter`, `dim_patient`, etc.)
 - Open **HealthcareDemoHLS** semantic model → create Power BI reports
 
-### Sample Questions — Data Agents
+### Power BI Dashboard
 
-The solution includes two complementary AI agents:
+The **HealthcareAnalyticsDashboard** Power BI report is deployed from the `payer-provider-healthcare/06_AI_and_Graph/HealthcareAnalyticsDashboard.Report/` definition. It includes:
 
-- **HealthcareHLSAgent** — SQL-based agent for aggregations, rates, and trends ("What is the denial rate?", "Top 10 providers by cost")
-- **Healthcare Ontology Agent** — Graph traversal agent for entity lookups and relationships ("Tell me about patient PAT0000001", "Who treated this patient?", "Trace claim CLM0009999 from patient to payer")
+| Page | Focus | Key Visuals |
+|------|-------|-------------|
+| Executive Summary | KPIs, denial rates, encounter volume | Card KPIs, trend lines, donut charts |
+| Claim Denials | Root cause, payer breakdown, financial impact | Waterfall, stacked bar, matrix |
+| Readmission Risk | 30-day readmission by facility & diagnosis | Heatmap, scatter, decomposition tree |
+| Medication Adherence | PDC rates, non-adherent populations | Gauge, grouped bar, line chart |
+| Social Determinants | SDOH risk by zip code, demographics | Map, bar, correlation scatter |
+| Provider Performance | Provider metrics, outlier detection | Table, bullet chart, ranking |
+
+The report binds to the `HealthcareDemoHLS` semantic model via Direct Lake (live connection). It starts working as soon as the semantic model refresh completes (Cell 4).
+
+For customization guidance (26 DAX measures, formatting tips, Direct Lake best practices) — see **[POWERBI_DASHBOARD_GUIDE.md](POWERBI_DASHBOARD_GUIDE.md)**.
+
+---
+
+## AI & Agents
+
+This solution ships **one programmatically-deployed Data Agent** plus an optional **Graph (ontology) agent** and an optional **Azure AI Foundry orchestrator**.
+
+### The Data Agent — HealthcareHLSAgent
+
+`HealthcareHLSAgent` is deployed automatically by the launcher — no manual setup required. Its two data sources are:
+
+- the **`HealthcareDemoHLS` semantic model** (DAX over the Direct Lake star schema), and
+- the **`lh_gold_curated` gold lakehouse** (SQL over the curated gold tables).
+
+It answers aggregation, rate, and trend questions ("What is the denial rate by payer?", "Top 10 providers by total billed amount", "Which patients have the highest readmission risk?"). Its datasource IDs are auto-remapped to the deployed items, so it works as soon as the semantic model refresh completes.
+
+To test it, open the agent in your workspace and try:
+- *"What is the overall denial rate by payer?"*
+- *"Show me the top 10 providers by total billed amount"*
+- *"Which patients have the highest readmission risk?"*
+
+For the complete agent configuration — AI instructions, concept-to-table routing, SQL rules, few-shot examples, knowledge base, and customization guide — see **[DATA_AGENT_GUIDE.md](DATA_AGENT_GUIDE.md)**.
+
+### Sample Questions
 
 See **[SAMPLE_QUESTIONS.md](SAMPLE_QUESTIONS.md)** for 90+ copy-paste questions organized by domain and agent — including a top **[Executive Pain-Point Questions](SAMPLE_QUESTIONS.md#executive-pain-point-questions-boardroom--c-suite)** section (CFO, CMO, CMIO, COO, VP Pop Health, CIO) framed in real-world boardroom language.
 
-#### Recommended Demo Warm-Up Sequence (Graph Ontology Agent)
+#### Recommended demo warm-up sequence (Graph Ontology Agent)
 
 The Graph Data Agent runs on top of an OpenAI assistant thread + tool-call harness. The first 1–2 calls after the agent is published spin up that thread and load the GQL examples from `aiInstructions` into the LLM's working context. Cold-starting straight into a complex aggregation question can surface as `submit_tool_outputs failed` (BadRequest) or "An error occurred". To get reliable demos, **always warm up with two simple list queries first**:
 
@@ -394,11 +422,7 @@ The Graph Data Agent runs on top of an OpenAI assistant thread + tool-call harne
 
 This gives you both reliability (the assistant thread is warm) and a stronger narrative arc (broad → specific → recommendation).
 
-### Data Agent Reference
-
-For the complete agent configuration -- AI instructions, concept-to-table routing, SQL rules, few-shot examples, knowledge base, and customization guide -- see **[DATA_AGENT_GUIDE.md](DATA_AGENT_GUIDE.md)**.
-
-#### Built to Microsoft best practices
+### Prep Data for AI (model-owner, one-time)
 
 `HealthcareHLSAgent` and its `HealthcareDemoHLS` semantic model follow Microsoft's published guidance: **[Semantic model best practices for data agent](https://learn.microsoft.com/en-us/fabric/data-science/semantic-model-best-practices#prep-for-ai-make-semantic-model-ai-ready)** and **[Prepare your data for AI](https://learn.microsoft.com/en-us/power-bi/create-reports/copilot-prepare-data-ai)**.
 
@@ -407,14 +431,7 @@ For the complete agent configuration -- AI instructions, concept-to-table routin
 
 The copy-paste-ready instructions, verified answers, and the API-vs-UI deployment map are in **[HLS_AGENT_PREP_FOR_AI.md](HLS_AGENT_PREP_FOR_AI.md)**.
 
-##### How the model owner applies Prep for AI (one-time, ~15 min)
-
-**How this is structured:** the steps below are the *click-path* (what to open, in what order);
-the actual text and DAX to copy live in **[HLS_AGENT_PREP_FOR_AI.md](HLS_AGENT_PREP_FOR_AI.md)**,
-section by section. Follow the steps here and copy from the matching section there.
-
-Git sync deploys the agent prompt and data-source config automatically, but the model-level
-**Prep for AI** content can't be set through the API — apply it once by hand:
+**How the model owner applies Prep for AI (one-time, ~15 min).** Git sync deploys the agent prompt and data-source config automatically, but the model-level **Prep for AI** content can't be set through the API — apply it once by hand. The steps below are the *click-path*; the actual text and DAX to copy live in the matching sections of **[HLS_AGENT_PREP_FOR_AI.md](HLS_AGENT_PREP_FOR_AI.md)**.
 
 1. **AI instructions** — In the Fabric/Power BI **service**, open the `HealthcareDemoHLS`
    semantic model → **Prep data for AI** → **Add AI instructions**. Copy the block from
@@ -430,166 +447,9 @@ Git sync deploys the agent prompt and data-source config automatically, but the 
 4. **Re-test and iterate** — start lean; add an instruction or verified answer whenever you
    spot a wrong answer.
 
-### Power BI Dashboard
+### Ontology Agent (Graph) — Manual UI Setup
 
-The **HealthcareAnalyticsDashboard** Power BI report is auto-deployed by fabric-cicd from the `payer-provider-healthcare/06_AI_and_Graph/HealthcareAnalyticsDashboard.Report/` definition. It includes:
-
-| Page | Focus | Key Visuals |
-|------|-------|-------------|
-| Executive Summary | KPIs, denial rates, encounter volume | Card KPIs, trend lines, donut charts |
-| Claim Denials | Root cause, payer breakdown, financial impact | Waterfall, stacked bar, matrix |
-| Readmission Risk | 30-day readmission by facility & diagnosis | Heatmap, scatter, decomposition tree |
-| Medication Adherence | PDC rates, non-adherent populations | Gauge, grouped bar, line chart |
-| Social Determinants | SDOH risk by zip code, demographics | Map, bar, correlation scatter |
-| Provider Performance | Provider metrics, outlier detection | Table, bullet chart, ranking |
-
-The report binds to the `HealthcareDemoHLS` semantic model via Direct Lake (live connection). It starts working as soon as the semantic model refresh completes (Cell 8).
-
-For customization guidance (26 DAX measures, formatting tips, Direct Lake best practices) -- see **[POWERBI_DASHBOARD_GUIDE.md](POWERBI_DASHBOARD_GUIDE.md)**.
-
-### Azure AI Foundry (Optional)
-
-To set up the **Foundry Orchestrator Agent** that combines the Fabric Data Agent with a Knowledge Base (21 clinical documents indexed via Azure AI Search) and web search for hybrid clinical decision support -- see **[FOUNDRY_IQ_SETUP_GUIDE.md](FOUNDRY_IQ_SETUP_GUIDE.md)**.
-
-For troubleshooting hybrid query failures (compound questions, instruction truncation, fewshot phrasing issues) -- see **[FOUNDRY_ORCHESTRATOR_TROUBLESHOOTING.md](FOUNDRY_ORCHESTRATOR_TROUBLESHOOTING.md)**.
-
----
-
-## Real-Time Intelligence (RTI) — 3 Payer/Provider Use Cases
-
-When `DEPLOY_STREAMING=True`, the launcher deploys a full RTI stack: **Eventhouse + KQL Database + Eventstream + 3 scoring notebooks + RTI Dashboard** that address high-value payer/provider pain points where batch analytics fall short.
-
-**Architecture pattern: hot path / cold path separation.**
-
-| Path | Store | Reader | Latency | Use case |
-|------|-------|--------|---------|----------|
-| **Hot** | KQL Eventhouse (`Healthcare_RTI_DB`) | KQL Dashboard, Kusto SDK in scoring notebooks | sub-second | Live fraud / care-gap / cost alerts |
-| **Cold** | Lakehouse (`lh_gold_curated`) | Power BI Direct Lake on `HealthcareDemoHLS` | minutes | Historical analytics, star schema, agents |
-
-The two stores are queried independently — KQL via the native Kusto query endpoint, Lakehouse via Direct Lake. **OneLake availability on the KQL DB is intentionally NOT enabled** because it would push readers toward Spark/Direct Lake on KQL, which negates the latency advantage that makes RTI valuable. If you need a unified view in your own environment, see *Best Practice vs Demo Approach* below.
-
-### Use Case 1: Claims Fraud Detection
-
-> **$68B lost to healthcare fraud annually** (NHCAA). Most SIU teams investigate claims weeks after submission — by then, the money is gone.
-
-**NB_RTI_Fraud_Detection** scores every claim in real-time using 4 rule-based signals:
-- **Velocity burst** — Provider submits many claims within a 1-hour window (30 pts max)
-- **Amount outlier** — Claim exceeds 3σ of provider's historical mean (25 pts max)
-- **Geographic anomaly** — Patient location far from provider facility (25 pts max)
-- **Upcoding** — Consistent use of highest E&M code 99215 (20 pts max)
-
-Risk tiers: **CRITICAL** (≥50) → **HIGH** (≥30) → **MEDIUM** (≥15) → **LOW**
-
-**Output:** `rti_fraud_scores` with lat/long for map visuals showing fraud hotspots.
-
-### Use Case 2: Care Gap Closure at Point of Care
-
-> **Payers spend $2-4 per member per month** on outreach for HEDIS gaps. The highest-value moment is when the patient is *already in front of a provider* — but the care team doesn't know about open gaps.
-
-**NB_RTI_Care_Gap_Alerts** fires when an ADT (Admit/Discharge/Transfer) event arrives:
-1. Joins the encounter with the patient's **8 HEDIS measures** (CDC, COL, BCS, SPC, CBP, SPD, OMW, PPC)
-2. Checks for open care gaps and ranks by priority (CRITICAL if diabetes/cancer gap >180 days)
-3. Generates **human-readable alerts** for the care team at the bedside
-
-**Output:** `rti_care_gap_alerts` with facility lat/long for map visuals showing which facilities have the most gap closure opportunities.
-
-### Use Case 3: High-Cost Member Trajectory
-
-> **5% of members drive 50% of total healthcare costs.** Early identification of members *trending toward* high-cost status enables care management intervention before catastrophic events.
-
-**NB_RTI_HighCost_Trajectory** computes rolling windows over claims and encounters:
-- **30-day and 90-day rolling spend** — flags members exceeding $15K/30d or $40K/90d
-- **ED superutilizer detection** — ≥3 emergency visits in 30 days
-- **Readmission tracking** — multiple admits within 30 days
-- **Cost trend** — ACCELERATING / RISING / STABLE / DECLINING
-
-Risk tiers: **CRITICAL** (high spend + frequent ED) → **HIGH** (high spend) → **MEDIUM** (ED/readmit/accelerating) → **LOW**
-
-**Output:** `rti_highcost_alerts` with lat/long for map visuals showing cost hotspots.
-
-### RTI Data Tables
-
-| Table | Description | Rows (Default) |
-|-------|-------------|----------------|
-| `rti_claims_events` | Simulated claim submissions with fraud patterns | ~500 |
-| `rti_adt_events` | ADT events (admit/discharge/transfer) | ~250 |
-| `rti_rx_events` | Prescription fill events | ~166 |
-| `rti_fraud_scores` | Scored claims with risk tiers and fraud flags | ~500 |
-| `rti_care_gap_alerts` | Point-of-care gap closure alerts | varies |
-| `rti_highcost_alerts` | Members on escalating cost trajectory | varies |
-
-### RTI Ingestion Architecture
-
-**Eventstream is the front door for all streaming data.** Cell 7 of `Healthcare_Launcher` wires the full Eventstream topology via API. The user copies the connection string from the portal and pastes it into the simulator notebook — then events stream continuously through the entire pipeline.
-
-```
-NB_RTI_Event_Simulator
-    │
-    ▼
-Healthcare_RTI_Eventstream (Custom Endpoint — EventHub protocol)
-    │
-    ├──► Eventhouse / KQL DB          (real-time hot path: KQL Dashboard + scoring notebooks)
-    ├──► Lakehouse (lh_bronze_raw)    (raw event archive)
-    └──► Activator / Reflex           (fraud / care-gap / high-cost alerts)
-```
-
-**Lakehouse** (`lh_gold_curated`) serves as the **batch archive** — populated by the medallion ETL pipeline, not by streaming. The KQL Eventhouse is the real-time query engine; the Lakehouse gold layer is the historical analytics engine. Each serves its optimal workload.
-
-#### Best Practice vs Demo Approach
-
-| Aspect | Production Best Practice | This Demo |
-|--------|--------------------------|-----------|
-| **Unified access** | Enable OneLake Availability on KQL DB → create OneLake shortcuts in Lakehouse pointing to KQL tables → query both stores via one semantic model | KQL Eventhouse for real-time; Lakehouse for batch — queried separately |
-| **Why the difference** | OneLake shortcuts require manual "Enable OneLake Availability" in the portal, propagation delays (30-60s), and specific table format requirements that don't lend themselves to one-click automation | Demo prioritizes reliability and zero manual portal steps over unified access |
-| **Trade-off** | Unified lakehouse view of both batch + streaming tables | Two query surfaces: KQL for streaming, Spark SQL for batch — both are fully functional |
-
-> **To enable shortcuts in your own environment (recommended for production):**
-> 1. Open your **KQL Database** in the Fabric portal
-> 2. Click **Database details** → toggle **OneLake availability** to **Active**
-> 3. Wait ~60 seconds for propagation
-> 4. In your Lakehouse → **New shortcut** → **Microsoft OneLake** → select the KQL database → choose tables
-> 5. Streaming tables now appear as Delta tables in the Lakehouse alongside batch gold tables
-
-**How to start streaming (fully automatic):**
-
-Cell 7 of `Healthcare_Launcher` wires the Eventstream topology, and Cell 8 fetches the Custom Endpoint connection string automatically via the Fabric Eventstream REST API (`GET /eventstreams/{id}/sources/{sourceId}/connection`) — no portal copy/paste needed.
-
-1. Cell 7 of `Healthcare_Launcher` wires the Eventstream topology and prints the URL
-2. *(One-time)* Enable **OneLake availability** on **Healthcare_RTI_DB** in the portal (Database details → OneLake → Active)
-3. Run **Cell 8** of `Healthcare_Launcher` → it auto-fetches the connection string, runs the simulator + all 3 scoring notebooks (`NB_RTI_Fraud_Detection`, `NB_RTI_Care_Gap_Alerts`, `NB_RTI_HighCost_Trajectory`) automatically
-4. Re-run any scoring notebook directly anytime to reprocess the live KQL data
-
-> **Fallback:** if auto-fetch fails (e.g. restricted token), open **Healthcare_RTI_Eventstream** → **HealthcareCustomEndpoint** in the portal, copy the **Connection String**, and paste it into `ES_CONNECTION_STRING` in Cell 8.
-
-> The user can re-run the simulator and scoring notebooks anytime to generate and process fresh data.
-
-#### API vs Portal Capabilities
-
-| Action | API | Portal |
-|---|---|---|
-| Create Eventstream item | ✅ Done by Cell 7 | ✅ |
-| Add Custom Endpoint source | ✅ Done by Cell 7 (definition API) | ✅ |
-| Wire Eventhouse destination | ✅ Done by Cell 7 (definition API) | ✅ |
-| Wire Lakehouse destination | ✅ Done by Cell 7 (if lh_bronze_raw exists) | ✅ |
-| Wire Activator/Reflex destination | ✅ Done by Cell 7 (if Reflex item exists) | ✅ |
-| Configure stream routing | ✅ Done by Cell 7 (definition API) | ✅ |
-| **Get connection string** | ❌ Not exposed in API schema | ✅ Portal only |
-| Verify topology status | ✅ GET /topology endpoint | ✅ |
-
-### Data Agents
-
-The **HealthcareHLSAgent** (SQL agent) is deployed programmatically by the launcher — no manual setup required. It connects to the `HealthcareDemoHLS` semantic model and includes AI instructions and data source configuration automatically.
-
-To test it, open the agent in your workspace and try a sample question:
-- *"What is the overall denial rate by payer?"*
-- *"Show me the top 10 providers by total billed amount"*
-- *"Which patients have the highest readmission risk?"*
-
-See **[SAMPLE_QUESTIONS.md](SAMPLE_QUESTIONS.md)** for 80+ tested questions across all domains.
-
-#### Data Agent — Ontology As Source
-
-The **HealthcareHLSOntology Agent** (graph agent) must be created manually in the Fabric UI — it cannot be fully deployed via API.
+The **Healthcare Ontology Agent** (graph agent) traverses the `Healthcare_Demo_Ontology_HLS` graph model for entity lookups and relationships ("Tell me about patient PAT0000001", "Who treated this patient?", "Trace claim CLM0009999 from patient to payer"). It must be created manually in the Fabric UI — it cannot be fully deployed via API.
 
 **Step 1: Create the Agent**
 
@@ -632,9 +492,116 @@ The **HealthcareHLSOntology Agent** (graph agent) must be created manually in th
    - *"What prescriptions are linked to claims denied for medical necessity?"*
 2. See **[SAMPLE_QUESTIONS.md → Graph Agent](SAMPLE_QUESTIONS.md#graph-agent-healthcare-ontology-agent)** section for more questions
 
+### Azure AI Foundry Orchestrator (optional)
+
+To set up the **Foundry Orchestrator Agent** that combines the Fabric Data Agent with a Knowledge Base (21 clinical documents indexed via Azure AI Search) and web search for hybrid clinical decision support — see **[FOUNDRY_IQ_SETUP_GUIDE.md](FOUNDRY_IQ_SETUP_GUIDE.md)**.
+
+For troubleshooting hybrid query failures (compound questions, instruction truncation, fewshot phrasing issues) — see **[FOUNDRY_ORCHESTRATOR_TROUBLESHOOTING.md](FOUNDRY_ORCHESTRATOR_TROUBLESHOOTING.md)**.
+
 ---
 
-### Set Up Data Activator Alerts (Manual — ~15 min)
+## Real-Time Intelligence (optional)
+
+When `DEPLOY_STREAMING=True` (the default), the launcher deploys a full RTI stack: **Eventhouse + KQL Database + Eventstream + Setup + 3 scoring notebooks + RTI Dashboard** that address high-value payer/provider pain points where batch analytics fall short.
+
+**Architecture pattern: hot path / cold path separation.**
+
+| Path | Store | Reader | Latency | Use case |
+|------|-------|--------|---------|----------|
+| **Hot** | KQL Eventhouse (`Healthcare_RTI_DB`) | KQL Real-Time Dashboard, Kusto SDK in scoring notebooks | sub-second | Live fraud / care-gap / cost alerts |
+| **Cold** | Lakehouse (`lh_gold_curated`) | Power BI Direct Lake on `HealthcareDemoHLS` | minutes | Historical analytics, star schema, agents |
+
+The two stores are queried independently — KQL via the native Kusto query endpoint, Lakehouse via Direct Lake. **OneLake Availability on the KQL DB is intentionally NOT enabled** by default because it would add mirroring latency that negates the real-time advantage. It is available as an **optional** step if you want unified lakehouse/Spark access — see **[RTI_STREAMING_GUIDE.md](RTI_STREAMING_GUIDE.md)**.
+
+> **Full RTI walkthrough** — end-to-end flow, KQL table schemas + update policies, setup steps, and troubleshooting: **[RTI_STREAMING_GUIDE.md](RTI_STREAMING_GUIDE.md)** (and the folder README at [`payer-provider-healthcare/05_Real_Time_Intelligence/README.md`](payer-provider-healthcare/05_Real_Time_Intelligence/README.md)).
+
+### Use Case 1: Claims Fraud Detection
+
+> **$68B lost to healthcare fraud annually** (NHCAA). Most SIU teams investigate claims weeks after submission — by then, the money is gone.
+
+**NB_RTI_Fraud_Detection** scores every claim in real-time using rule-based + statistical signals:
+- **Velocity burst** — Provider submits many claims within a short window
+- **Amount outlier** — Claim exceeds 3σ of provider's historical mean
+- **Geographic anomaly** — Patient location far from provider facility
+- **Upcoding** — Consistent use of the highest E&M code
+
+Risk tiers: **CRITICAL** → **HIGH** → **MEDIUM** → **LOW**
+
+**Output:** `fraud_scores` (KQL) + `rti_fraud_scores` (Delta in `lh_gold_curated`), with lat/long for map visuals showing fraud hotspots.
+
+### Use Case 2: Care Gap Closure at Point of Care
+
+> **Payers spend $2-4 per member per month** on outreach for HEDIS gaps. The highest-value moment is when the patient is *already in front of a provider* — but the care team doesn't know about open gaps.
+
+**NB_RTI_Care_Gap_Alerts** fires when an ADT (Admit/Discharge/Transfer) event arrives:
+1. Joins the encounter with the patient's **open HEDIS measures** (CDC, COL, BCS, SPC, CBP, SPD, OMW, PPC)
+2. Checks for open care gaps and ranks by priority (CRITICAL if a high-value gap is long overdue)
+3. Generates **human-readable alerts** for the care team at the bedside
+
+**Output:** `care_gap_alerts` (KQL) + `rti_care_gap_alerts` (Delta), with facility lat/long for map visuals showing which facilities have the most gap-closure opportunities.
+
+### Use Case 3: High-Cost Member Trajectory
+
+> **5% of members drive 50% of total healthcare costs.** Early identification of members *trending toward* high-cost status enables care management intervention before catastrophic events.
+
+**NB_RTI_HighCost_Trajectory** computes rolling windows over claims and encounters:
+- **30-day and 90-day rolling spend** — flags members exceeding thresholds
+- **ED superutilizer detection** — ≥3 emergency visits in 30 days
+- **Readmission tracking** — multiple admits within 30 days
+- **Cost trend** — ACCELERATING / RISING / STABLE / DECLINING
+
+Risk tiers: **CRITICAL** → **HIGH** → **MEDIUM** → **LOW**
+
+**Output:** `highcost_alerts` (KQL) + `rti_highcost_alerts` (Delta), with lat/long for map visuals showing cost hotspots.
+
+### RTI Data Tables
+
+All RTI tables live in the `Healthcare_RTI_DB` KQL database. Simulator events land in `rti_all_events`, then server-side **update policies** fan them out to the typed tables by the `_table` field.
+
+| KQL table | Role | Description |
+|-----------|------|-------------|
+| `rti_all_events` | Landing | All simulator events (string-typed timestamp + `_table` routing field) |
+| `claims_events` | Typed input | Claim submissions with fraud patterns |
+| `adt_events` | Typed input | ADT events (admit/discharge/transfer) |
+| `rx_events` | Typed input | Prescription fill events |
+| `fraud_scores` | Scored output | Scored claims with risk tiers and fraud flags |
+| `care_gap_alerts` | Scored output | Point-of-care gap closure alerts |
+| `highcost_alerts` | Scored output | Members on escalating cost trajectory |
+
+> Scoring notebooks also persist a **Delta copy** of each output to `lh_gold_curated` (`rti_fraud_scores`, `rti_care_gap_alerts`, `rti_highcost_alerts`) so real-time and historical views stay reconcilable.
+
+### How Streaming Works
+
+**Eventstream is the front door for all streaming data.** Cell 5 wires the full Eventstream topology via API; Cell 6 drives the run.
+
+```
+NB_RTI_Event_Simulator  (reads lh_gold_curated dims/facts)
+    │  EventHub protocol
+    ▼
+Healthcare_RTI_Eventstream (Custom Endpoint)
+    │
+    ├──► Eventhouse / KQL DB  → rti_all_events ──(update policies)──► claims_events / adt_events / rx_events
+    ├──► Lakehouse (lh_bronze_raw)   (optional raw event archive)
+    └──► Activator / Reflex          (fraud / care-gap / high-cost alerts)
+                                            │
+            scoring notebooks read typed tables via Kusto SDK
+                                            ▼
+                       fraud_scores / care_gap_alerts / highcost_alerts → KQL Real-Time Dashboard
+```
+
+**Running it (fully automatic):**
+
+1. **Cell 5** wires the Eventstream topology and deploys the RTI Real-Time Dashboard.
+2. **Cell 6** auto-fetches the Custom Endpoint connection string via the Fabric Eventstream REST API (`GET /eventstreams/{id}/sources/{sourceId}/connection`) — no portal copy/paste — then runs Setup → Simulator → verification → all 3 scoring notebooks.
+3. Re-run any scoring notebook directly anytime to reprocess the live KQL data.
+
+> **No portal step is required for the core scenario.** Enabling OneLake Availability on `Healthcare_RTI_DB` is **optional** (only if you want to read the KQL tables as Delta from Spark) — see **[RTI_STREAMING_GUIDE.md](RTI_STREAMING_GUIDE.md)**.
+>
+> **Fallback:** if the connection-string auto-fetch fails (e.g. restricted token), open **Healthcare_RTI_Eventstream** → **HealthcareCustomEndpoint** in the portal, copy the **Connection String**, and paste it into `ES_CONNECTION_STRING` in Cell 6.
+
+---
+
+## Data Activator / Reflex Alerts (Manual — ~15 min)
 
 Data Activator (Reflex) is the **production-grade alerting layer** for this solution. It monitors RTI KQL tables in real time and fires **proactive alerts** via Email, Teams, or Power Automate when scoring thresholds are breached — no code required.
 
@@ -644,18 +611,18 @@ Data Activator (Reflex) is the **production-grade alerting layer** for this solu
 > - **Case managers** flagged on high-cost member trajectories before costs escalate
 > - **IT/ops teams** alerted to pipeline staleness or data quality issues
 
-#### Step 1: Create a Reflex Item
+### Step 1: Create a Reflex Item
 
 1. In your Fabric workspace → **+ New item** → **Reflex**
 2. Name it `Healthcare_RTI_Alerts`
 
-#### Step 2: Connect to the KQL Database
+### Step 2: Connect to the KQL Database
 
 1. In the Reflex item → **Get data** → **KQL Database**
 2. Select `Healthcare_RTI_DB` (in the `Healthcare_RTI_Eventhouse`)
 3. You'll add triggers for each of the 3 scoring tables below
 
-#### Step 3: Configure Alert Rules
+### Step 3: Configure Alert Rules
 
 **Rule 1 — Fraud Detection (SIU Referral)**
 
@@ -696,7 +663,7 @@ Data Activator (Reflex) is the **production-grade alerting layer** for this solu
 | **Email Subject** | `💰 High-Cost Alert — Patient {{patient_id}}: ${{rolling_spend_30d}} in 30d` |
 | **Email Body** | `ED Visits: {{ed_visits_30d}}, Trend: {{cost_trend}}, Tier: {{risk_tier}}` |
 
-#### Step 4: Verify Alerts Fire
+### Step 4: Verify Alerts Fire
 
 1. Run **NB_RTI_Event_Simulator** in batch mode to generate test events
 2. Run the 3 scoring notebooks (Fraud, Care Gap, HighCost)
@@ -704,7 +671,7 @@ Data Activator (Reflex) is the **production-grade alerting layer** for this solu
 
 > **Power Automate integration**: For complex routing (create ServiceNow tickets, update EHR systems, page on-call staff), select **Power Automate** as the action and build a flow that reads the alert payload. The Reflex trigger passes all card fields as dynamic content to the flow.
 
-#### Real-World Pain Points Solved
+### Real-World Pain Points Solved
 
 | Pain Point | How Activator Solves It |
 |------------|------------------------|
@@ -714,11 +681,11 @@ Data Activator (Reflex) is the **production-grade alerting layer** for this solu
 | **Alert fatigue from noisy dashboards** | Activator fires only when thresholds breach — no polling, no dashboards to watch |
 | **Compliance audit trail gaps** | Every Activator trigger is logged with timestamp, threshold, and action taken — ready for audit |
 
-### Run Incremental Loads
+## Run Incremental Loads
 
 After the initial full load, you can simulate daily operational data arriving. The pipeline supports a `load_mode` parameter that switches between full rebuild and incremental processing.
 
-#### How It Works
+### How It Works
 
 The **PL_Healthcare_Master** pipeline accepts a `load_mode` parameter (default `"full"`). When set to `"incremental"`, the pipeline:
 
@@ -730,7 +697,7 @@ The **PL_Healthcare_Master** pipeline accepts a `load_mode` parameter (default `
    - **Type 1 dimensions** (`dim_payer`, `dim_facility`, `dim_diagnosis`, `dim_medication`): overwritten (reference data, no history needed)
    - **Fact tables** (`fact_encounter`, `fact_claim`, `fact_prescription`): Delta MERGE on business key — updates existing rows, inserts new ones
 
-#### Data Volumes Per Incremental Run
+### Data Volumes Per Incremental Run
 
 | Entity | New Rows | Notes |
 |--------|----------|-------|
@@ -740,7 +707,7 @@ The **PL_Healthcare_Master** pipeline accepts a `load_mode` parameter (default `
 | Prescriptions | ~75–100 | 1–3 per encounter based on diagnosis |
 | Patients | ~2 new + 2–3 updates | Updates simulate address/insurance changes |
 
-#### Steps
+### Steps
 
 **Option A — Run from the Pipeline UI:**
 
@@ -750,20 +717,20 @@ The **PL_Healthcare_Master** pipeline accepts a `load_mode` parameter (default `
 
 **Option B — Run the notebooks manually:**
 
-1. Open **NB_Generate_Incremental_Data** → Run All  
+1. Open **NB_Generate_Incremental_Data** → Run All
    *(writes timestamped CSVs to `Files/incremental/YYYY-MM-DD/`)*
-2. Open **PL_Healthcare_Full_Load** → Run with parameter `load_mode=incremental`  
+2. Open **PL_Healthcare_Full_Load** → Run with parameter `load_mode=incremental`
    *(or run Bronze → Silver → Gold notebooks individually)*
 
-#### Scheduling
+### Scheduling
 
 To automate daily incremental loads, add a **Schedule trigger** to `PL_Healthcare_Master`:
 
-1. Open the pipeline → **Schedule** (top toolbar)  
-2. Set recurrence (e.g., daily at 6:00 AM)  
+1. Open the pipeline → **Schedule** (top toolbar)
+2. Set recurrence (e.g., daily at 6:00 AM)
 3. Add parameter: `load_mode` = `incremental`
 
-#### Verifying Incremental Data
+### Verifying Incremental Data
 
 After an incremental run, check that new data flowed through:
 
@@ -787,17 +754,14 @@ Edit the **CONFIGURATION** cell at the top of `Healthcare_Launcher.Notebook`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GITHUB_OWNER` | `rasgiza` | GitHub org or username (public repo — no token needed) |
-| `GITHUB_REPO` | `Fabric-Payer-Provider-HealthCare-Demo` | Repository name |
-| `GITHUB_BRANCH` | `main` | Branch to deploy from |
-| `GITHUB_TOKEN` | `""` | Only needed if you fork to a private repo |
-| `GENERATE_DATA` | `True` | Generate fresh synthetic data |
-| `RUN_PIPELINE` | `True` | Run the full-load pipeline |
-| `UPLOAD_KNOWLEDGE_DOCS` | `True` | Upload knowledge docs for AI agent |
-| `DEPLOY_STREAMING` | `False` | Deploy Real-Time Intelligence (Eventhouse + KQL + Eventstream + 3 scoring notebooks + RTI Dashboard). Set `True` for RTI. |
-| `ES_CONNECTION_STRING` | `""` | *(Cell 8)* Eventstream Custom Endpoint connection string. Auto-fetched via the Eventstream REST API; leave empty unless you want to override it. |
+| `GENERATE_DATA` | `True` | Run `NB_Generate_Sample_Data` to populate `lh_bronze_raw` |
+| `RUN_PIPELINE` | `True` | Run the full-load pipeline (`PL_Healthcare_Master`) |
+| `DEPLOY_STREAMING` | `True` | Deploy + run Real-Time Intelligence (Eventhouse + KQL + Eventstream + scoring notebooks + RTI Dashboard). Set `False` for a batch-only demo. |
+| `ES_CONNECTION_STRING` | `""` | *(Cell 6)* Eventstream Custom Endpoint connection string. Auto-fetched via the Eventstream REST API; leave empty unless you want to override it. |
 
-> **Restricted networks:** The launcher downloads from GitHub at runtime. If your environment blocks `github.com` or `raw.githubusercontent.com`, fork this repo to an allowed internal location and update `GITHUB_OWNER` / `GITHUB_REPO` accordingly.
+> The source refs `GITHUB_OWNER` / `GITHUB_REPO` / `GITHUB_BRANCH` live in a separate **INTERNAL CONSTANTS — do not edit** cell and only matter if you deployed from a fork.
+>
+> **Restricted networks:** The launcher downloads from GitHub at runtime. If your environment blocks `github.com` or `raw.githubusercontent.com`, fork this repo to an allowed internal location and update those constants accordingly.
 
 ## Prerequisites
 
@@ -843,8 +807,9 @@ fabric-payer-provider-healthcare-demo-jumpstart/
 │   │   ├── PL_Healthcare_Master.DataPipeline/
 │   │   └── PL_Healthcare_RTI.DataPipeline/
 │   ├── 05_Real_Time_Intelligence/
+│   │   ├── README.md                        # RTI flow + use cases (links to RTI_STREAMING_GUIDE.md)
 │   │   ├── Healthcare_RTI_Eventhouse.Eventhouse/
-│   │   ├── Healthcare_RTI_DB.KQLDatabase/   # Schema with retention + streaming policies
+│   │   ├── Healthcare_RTI_DB.KQLDatabase/    # 7 tables (landing + typed + scored) + streaming/update policies
 │   │   ├── NB_RTI_Setup_Eventhouse.Notebook/
 │   │   ├── NB_RTI_Event_Simulator.Notebook/
 │   │   ├── NB_RTI_Fraud_Detection.Notebook/
@@ -858,7 +823,7 @@ fabric-payer-provider-healthcare-demo-jumpstart/
 │       └── NB_Refresh_Graph_Model.Notebook/
 │
 ├── data_agents/                             # Reference agent configs (manual UI step)
-│   └── HealthcareOntologyAgent.DataAgent/   # Graph-based agent — created via UI per Cell 11
+│   └── HealthcareOntologyAgent.DataAgent/   # Graph-based agent — created via UI
 │
 ├── ontology/                                # Ontology manifest (12 entities, 18 relationships)
 │   └── Healthcare_Demo_Ontology_HLS/        # Deployed by NB_Deploy_Graph_Model
@@ -872,7 +837,7 @@ fabric-payer-provider-healthcare-demo-jumpstart/
 │   └── quality_measures/
 │
 ├── foundry_agent/
-│   └── orchestrator_instructions.md         # Version-controlled orchestrator prompt (v23)
+│   └── orchestrator_instructions.md         # Version-controlled orchestrator prompt
 │
 ├── DATA_AGENT_GUIDE.md                      # Agent instructions, routing, few-shots, KB
 ├── DATA_AGENT_INSTRUCTIONS.md               # Step-by-step agent setup
@@ -881,8 +846,8 @@ fabric-payer-provider-healthcare-demo-jumpstart/
 ├── FOUNDRY_ORCHESTRATOR_TROUBLESHOOTING.md  # Hybrid query debugging guide
 ├── HLS_AGENT_PREP_FOR_AI.md                 # AI-prep checklist for the HLS agent
 ├── RTI_DASHBOARD_GUIDE.md                   # RTI dashboard pages and KQL queries
-├── RTI_STREAMING_GUIDE.md                   # Live streaming setup
-├── SAMPLE_QUESTIONS.md                      # 80+ copy-paste questions for all agents
+├── RTI_STREAMING_GUIDE.md                   # RTI streaming scenario walkthrough
+├── SAMPLE_QUESTIONS.md                      # 90+ copy-paste questions for all agents
 └── EXECUTIVE_DEMO_RUNBOOK.md                # 5-minute exec walkthrough script
 ```
 
@@ -892,10 +857,10 @@ fabric-payer-provider-healthcare-demo-jumpstart/
 |-------|----------|
 | "Workspace is not empty" | The Jumpstart installer expects an empty workspace before deploying items |
 | Pipeline fails | Open PL_Healthcare_Master → check activity run details. Common cause: lakehouse tables not yet created |
-| Semantic model shows no data | Run the pipeline first — it populates Gold lakehouse tables that the model reads |
+| Semantic model shows no data | Run the pipeline first (Cell 3) — it populates Gold lakehouse tables that the model reads |
 | Data Agent returns generic answers | Open the agent → verify AI instructions are pasted from [DATA_AGENT_INSTRUCTIONS.md § 1a](DATA_AGENT_INSTRUCTIONS.md#1a--ai-instructions-stage_configjson) and data source is connected |
-| Graph Agent shows no results | Re-run Cell 5 of `Healthcare_Launcher` (deploys ontology + graph) and Cell 6 (patches agent IDs) |
-| RTI tables stay empty | Cell 8 auto-fetches the Eventstream Custom Endpoint connection string. If ingestion never starts, check the `[WARN]` output in Cell 8 — if auto-fetch failed, paste the connection string into `ES_CONNECTION_STRING` manually and re-run |
+| Graph Agent shows no results | Re-run **Cell 7** of `Healthcare_Launcher` (deploys ontology + graph) |
+| RTI tables stay empty | **Cell 6** auto-fetches the Eventstream Custom Endpoint connection string. If ingestion never starts, check the `[WARN]` output in Cell 6 — if auto-fetch failed, paste the connection string into `ES_CONNECTION_STRING` manually and re-run. Verify the update policies exist (see [RTI_STREAMING_GUIDE.md](RTI_STREAMING_GUIDE.md)) |
 
 ## Credits
 
