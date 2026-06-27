@@ -23,7 +23,7 @@ carries `///` table, column, and measure descriptions (DirectLake on `lh_gold_cu
 | **A. Agent-level instructions** (operational prompt) | `HealthcareHLSAgent.DataAgent/.../stage_config.json` | ✅ API / Git sync |
 | **B. Data-source instructions** (schema, routing, SQL rules, values) | `.../datasource.json` | ✅ API / Git sync |
 | **C. Model-level *Prep for AI* instructions** | Semantic model → *Prep for AI* pane | ⚠️ **Fabric UI only — copy-paste** |
-| **D. Verified answers** (NL → saved visual) | Created in **Power BI Desktop** (right-click visual → *Set up verified answer*); surfaces in service *Prep data for AI → Verified answers* | ⚠️ **Desktop + service UI** |
+| **D. Verified answers** (NL → saved visual) | Set in the **Fabric / Power BI service** — open a report on the model → *Edit* → select a visual → *…* → *Set up a verified answer*; surfaces in *Prep data for AI → Verified answers* | ⚠️ **Service UI only (Direct Lake)** |
 
 **Why the split:** model-level Prep-for-AI instructions (C) and verified answers (D)
 **cannot be updated through the API today**, so they are documented here for you to paste
@@ -42,20 +42,23 @@ business terms, pick the wrong measure, and miss your standard breakdowns.
 
 **One-time setup for the model owner.** The `HealthcareDemoHLS` semantic model has a
 **Prep data for AI** pane (in the Fabric / Power BI **service**) with three steps:
-*Simplify the data schema*, *Verified answers*, and *Add AI instructions*. Two of those are
-edited right in the service; verified answers are created in **Power BI Desktop** and then
-show up back in this pane.
+*Simplify the data schema*, *Verified answers*, and *Add AI instructions*. All three are done
+in the **service** — `HealthcareDemoHLS` is a **Direct Lake** model, and Power BI Desktop only
+supports Prep-for-AI authoring for Import / DirectQuery / Composite (local) models, so Desktop
+is not an option here. Per Microsoft Learn, *all* model types can author Prep-for-AI in the
+service.
 
 1. **Add AI instructions** (in the service → Prep data for AI → *Add AI instructions*) → paste
    Section 3 of this doc (benchmarks + business rules).
 2. *(Optional, recommended)* **Simplify the data schema** (in the service → same pane) → keep
    only AI-relevant tables and measures to cut ambiguity; add synonyms for terms users say.
-3. **Verified answers** → these are **created in Power BI Desktop**, not typed in the service.
-   In Desktop, build a report on this model with a visual that shows the answer, then
-   **right-click the visual → "Set up verified answer"** and add the phrasings users will ask
+3. **Verified answers** → set these **in the service** (Direct Lake is not supported in Power BI
+   Desktop). In a Copilot-enabled workspace, open a report built on this model, switch to
+   **Edit** mode, go to a report page, and **select the visual** that shows the answer; then on
+   the visual's **… menu → "Set up a verified answer"** and add the phrasings users will ask
    (5–7 each). Section 4 gives the DAX that defines what each visual should display — use it to
-   build the visual, not to paste. **Once you publish/save, go back to the Fabric UI → Prep data
-   for AI → Verified answers and you'll see the new entries reflected there.**
+   build the visual, not to paste. The saved entries appear under **Prep data for AI → Verified
+   answers** on the model.
 4. Re-test the agent, then iterate — add an instruction or verified answer whenever you see a
    wrong answer. Start lean; don't do everything at once.
 
@@ -151,19 +154,21 @@ When a metric beats or misses its benchmark, say so and suggest a concrete next 
 
 ---
 
-## 4. Verified answers — Layer D (⚠️ created in Power BI Desktop, then surfaced in the Fabric UI)
+## 4. Verified answers — Layer D (⚠️ set in the Fabric / Power BI service — Direct Lake)
 
 **How verified answers are actually created (preview):**
-1. In **Power BI Desktop**, open a report built on this model, **right-click a visual** that
-   shows the answer, and select **"Set up verified answer"**.
+1. In a Copilot-enabled workspace, open a report built on this model in the **service**, switch
+   to **Edit** mode, go to a report page, and **select a visual** that shows the answer; then on
+   the visual's **… menu** select **"Set up a verified answer"**. (Direct Lake models can't be
+   authored in Power BI Desktop — Desktop Prep-for-AI only supports Import / DirectQuery /
+   Composite.)
 2. Add the common phrases / questions users might ask about that data.
-3. Publish/save. Back in the Fabric **service** → the model's **Prep data for AI → Verified
-   answers** tab now lists the entry. Copilot and the data agent then return that saved visual
-   when users ask a related question.
+3. Save. The model's **Prep data for AI → Verified answers** tab now lists the entry. Copilot and
+   the data agent then return that saved visual when users ask a related question.
 
 So each DAX block below is the **spec for the visual to build** — it defines the exact measures,
-columns, filters, and sort the visual must use. Build a visual matching the DAX in Desktop, then
-right-click it and attach the trigger phrasings. The DAX assumes the measures and columns
+columns, filters, and sort the visual must use. Build a visual matching the DAX in the service,
+then open its … menu and attach the trigger phrasings. The DAX assumes the measures and columns
 described in the TMDL.
 
 ### Q1 — Top 5 denial reasons by denied-claim count
