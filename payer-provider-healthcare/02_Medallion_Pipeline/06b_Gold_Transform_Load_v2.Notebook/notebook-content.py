@@ -1826,11 +1826,15 @@ try:
         ) \
         .withColumn("_load_timestamp", current_timestamp())
 
-    # Generate surrogate key for graph ontology (composite keys not supported)
-    from pyspark.sql.functions import monotonically_increasing_id
+    # Generate surrogate key for graph ontology (composite keys not supported).
+    # NOTE: after the groupBy().agg() above, the output columns are UNQUALIFIED
+    # (patient_key, medication_key) -- the fp/dm join aliases no longer exist, so
+    # we must reference the bare column names here. Using col("fp.patient_key")
+    # raises AnalysisException, which previously left this table unwritten (empty
+    # shell from 06a) and broke the Direct Lake semantic-model refresh.
     df_adherence = df_adherence.withColumn(
         "adherence_key",
-        (col("fp.patient_key") * lit(100000) + col("fp.medication_key")).cast("long")
+        (col("patient_key") * lit(100000) + col("medication_key")).cast("long")
     )
 
     # Select final columns
@@ -1867,7 +1871,9 @@ try:
     print(f"      Average PDC Score:   {avg_pdc:.2%}" if avg_pdc else "      Average PDC Score:   N/A")
 
 except Exception as e:
-    print(f"   ⚠️ Medication adherence aggregate skipped: {str(e)[:80]}")
+    import traceback
+    print(f"   ⚠️ Medication adherence aggregate FAILED: {e}")
+    traceback.print_exc()
 
 # METADATA ********************
 
