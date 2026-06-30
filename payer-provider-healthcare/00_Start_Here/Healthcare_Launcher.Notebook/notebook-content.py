@@ -251,12 +251,16 @@ else:
 #
 # Steps:
 #   1. Find lh_gold_curated lakehouse ID
-#   2. Find any existing SM with the same name and UPDATE it in place (keeps the
-#      GUID stable so the report's by-name binding survives); create if absent
+#   2. Find any existing SM with the same name and DELETE it, then CREATE a
+#      fresh model. A Direct Lake model that is updated in place keeps its
+#      stale internal table bindings, so the immediate refresh reframes against
+#      the old table identity and fails ("source tables do not exist"). Always
+#      creating fresh (matching the reference deployment) binds cleanly.
 #   3. Load all TMDL files from the extracted repo on the lakehouse filesystem
 #   4. Patch expressions.tmdl URL with correct payer-provider-healthcare/lakehouse IDs
-#   5. updateDefinition on the existing SM (or POST /semanticModels if new)
-#   6. Trigger Full refresh
+#   5. POST /semanticModels to create the fresh model
+#   6. Rebind the HealthcareAnalyticsDashboard report to the new model GUID
+#   7. Trigger Full refresh
 # ============================================================================
 
 import requests, time, base64, re, json, os
@@ -321,20 +325,22 @@ else:
     print(f"  Workspace: {workspace_id}")
     new_url = f"https://onelake.dfs.fabric.microsoft.com/{workspace_id}/{lh_gold_id}"
 
-    # -- Step 2: Find existing SM (update in place to keep GUID stable) ----
-    # The HealthcareAnalyticsDashboard report binds to this model by-name
-    # (definition.pbir byPath), which fabric-cicd resolves to a concrete dataset
-    # GUID at install time. Deleting + recreating the model would orphan that
-    # binding (the report would point at a deleted GUID). Instead we UPDATE the
-    # existing model's definition in place, preserving its GUID so the report
-    # stays bound. Falls back to create when no model exists yet.
+    # -- Step 2: Find any existing SM (it will be DELETED + recreated) ------
+    # fabric-cicd deploys HealthcareDemoHLS.SemanticModel as a git item at
+    # install time, creating a PLACEHOLDER Direct Lake model. Updating that
+    # placeholder in place keeps its stale internal table bindings, so the
+    # refresh below reframes against the old table identity and fails with
+    # "source tables do not exist". The reference deployment instead always
+    # CREATES the model fresh, which binds cleanly. So we delete any existing
+    # model (placeholder or prior deploy) and recreate it, then rebind the
+    # HealthcareAnalyticsDashboard report to the new GUID (Step 4b).
     existing_sm_id = None
     resp = requests.get(f"{FABRIC_API}/items?type=SemanticModel", headers=headers)
     resp.raise_for_status()
     for sm in resp.json().get("value", []):
         if sm["displayName"] == SM_NAME:
             existing_sm_id = sm["id"]
-            print(f"  Found existing SM: {SM_NAME} ({existing_sm_id}) -- update in place")
+            print(f"  Found existing SM: {SM_NAME} ({existing_sm_id}) -- will delete + recreate fresh")
             break
     if not existing_sm_id:
         print(f"  No existing SM named {SM_NAME} -- will create fresh")
@@ -457,65 +463,88 @@ else:
         if not parts:
             print("  [FAIL] No definition parts loaded. Cannot create SM.")
         else:
-            # -- Step 4: Deploy definition (update in place, or create) -----
+            # -- Step 4: Delete any existing SM, then CREATE fresh ----------
             token = notebookutils.credentials.getToken("pbi")
             headers["Authorization"] = f"Bearer {token}"
 
             sm_id = None
+
+            # Delete the placeholder / prior model so we always create clean.
+            # In-place updates on a Direct Lake model keep stale table bindings
+            # and break the refresh; a fresh create rebinds to the lakehouse
+            # SQL endpoint cleanly.
             if existing_sm_id:
-                # Update in place -- keeps the GUID stable so the
-                # HealthcareAnalyticsDashboard report binding survives.
-                # No updateMetadata flag: we only swap the definition (TMDL),
-                # not the item metadata, so a .platform part isn't required.
-                print(f"  Updating SM in place: {SM_NAME} ({existing_sm_id}) with {len(parts)} TMDL parts...")
-                r = requests.post(
-                    f"{FABRIC_API}/semanticModels/{existing_sm_id}/updateDefinition",
-                    headers=headers,
-                    json={"definition": {"parts": parts}},
+                print(f"  Deleting existing SM {SM_NAME} ({existing_sm_id}) to recreate fresh...")
+                dr = requests.delete(
+                    f"{FABRIC_API}/semanticModels/{existing_sm_id}", headers=headers
                 )
-                print(f"  UpdateDefinition HTTP {r.status_code}")
-                if r.status_code in (200, 201):
-                    sm_id = existing_sm_id
-                    print(f"  Updated: {sm_id}")
-                elif r.status_code == 202:
-                    st, body = wait_lro(r, headers, timeout=180)
-                    if st == "Succeeded":
-                        sm_id = existing_sm_id
-                        print(f"  Updated (async): {sm_id}")
-                    else:
-                        print(f"  Update LRO {st}: {body}")
+                print(f"  Delete HTTP {dr.status_code}")
+                if dr.status_code == 202:
+                    wait_lro(dr, headers, timeout=120)
+                # Give the workspace a moment to release the name before recreate.
+                time.sleep(5)
+                token = notebookutils.credentials.getToken("pbi")
+                headers["Authorization"] = f"Bearer {token}"
+
+            create_body = {
+                "displayName": SM_NAME,
+                "description": "Healthcare Demo Direct Lake semantic model",
+                "definition": {"parts": parts}
+            }
+            print(f"  Creating SM: {SM_NAME} with {len(parts)} TMDL parts...")
+            r = requests.post(f"{FABRIC_API}/semanticModels", headers=headers, json=create_body)
+            print(f"  Create HTTP {r.status_code}")
+            if r.status_code in (200, 201):
+                sm_id = r.json().get("id")
+                print(f"  Created: {sm_id}")
+            elif r.status_code == 202:
+                st, body = wait_lro(r, headers, timeout=180)
+                if st == "Succeeded":
+                    time.sleep(3)
+                    resp2 = requests.get(f"{FABRIC_API}/items?type=SemanticModel", headers=headers)
+                    for sm in resp2.json().get("value", []):
+                        if sm["displayName"] == SM_NAME:
+                            sm_id = sm["id"]
+                            break
+                if sm_id:
+                    print(f"  Created (async): {sm_id}")
                 else:
-                    print(f"  [FAIL] Update SM: HTTP {r.status_code}")
-                    print(f"  Response: {r.text[:500]}")
+                    print(f"  Create LRO {st}: {body}")
             else:
-                create_body = {
-                    "displayName": SM_NAME,
-                    "description": "Healthcare Demo Direct Lake semantic model",
-                    "definition": {"parts": parts}
-                }
-                print(f"  Creating SM: {SM_NAME} with {len(parts)} TMDL parts...")
-                r = requests.post(f"{FABRIC_API}/semanticModels", headers=headers, json=create_body)
-                print(f"  Create HTTP {r.status_code}")
-                if r.status_code in (200, 201):
-                    sm_id = r.json().get("id")
-                    print(f"  Created: {sm_id}")
-                elif r.status_code == 202:
-                    st, body = wait_lro(r, headers, timeout=180)
-                    if st == "Succeeded":
-                        time.sleep(3)
-                        resp2 = requests.get(f"{FABRIC_API}/items?type=SemanticModel", headers=headers)
-                        for sm in resp2.json().get("value", []):
-                            if sm["displayName"] == SM_NAME:
-                                sm_id = sm["id"]
-                                break
-                    if sm_id:
-                        print(f"  Created (async): {sm_id}")
+                print(f"  [FAIL] Create SM: HTTP {r.status_code}")
+                print(f"  Response: {r.text[:500]}")
+                sm_id = None
+
+            # -- Step 4b: Rebind the report to the fresh SM GUID ------------
+            # The HealthcareAnalyticsDashboard report was deployed by fabric-cicd
+            # bound (byPath) to the SM we just deleted. Point it at the freshly
+            # created model so the report keeps working after recreation.
+            if sm_id:
+                try:
+                    REPORT_NAME = "HealthcareAnalyticsDashboard"
+                    pbi_base_rb = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
+                    rep_resp = requests.get(
+                        f"{FABRIC_API}/items?type=Report", headers=headers
+                    )
+                    report_id = None
+                    for it in rep_resp.json().get("value", []):
+                        if it["displayName"] == REPORT_NAME:
+                            report_id = it["id"]
+                            break
+                    if report_id:
+                        rb = requests.post(
+                            f"{pbi_base_rb}/reports/{report_id}/Rebind",
+                            headers=headers,
+                            json={"datasetId": sm_id},
+                        )
+                        if rb.status_code in (200, 202):
+                            print(f"  Rebound report {REPORT_NAME} -> SM {sm_id}")
+                        else:
+                            print(f"  [WARN] Rebind report HTTP {rb.status_code}: {rb.text[:200]}")
                     else:
-                        print(f"  Create LRO {st}: {body}")
-                else:
-                    print(f"  [FAIL] Create SM: HTTP {r.status_code}")
-                    print(f"  Response: {r.text[:500]}")
-                    sm_id = None
+                        print(f"  [WARN] Report {REPORT_NAME} not found yet -- it will bind on next report deploy")
+                except Exception as _rb_e:
+                    print(f"  [WARN] Report rebind skipped: {_rb_e}")
 
             # -- Step 5: Trigger refresh -----------------------------------
             if sm_id:
