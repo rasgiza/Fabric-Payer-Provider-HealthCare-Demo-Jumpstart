@@ -1854,8 +1854,18 @@ try:
     ).drop("first_fill_date", "last_fill_date")
 
     ADHERENCE_TABLE = f"{GOLD}.agg_medication_adherence"
+    # DROP-then-write, NOT overwrite+overwriteSchema. On a re-deploy over an
+    # existing lakehouse, an in-place schema change (e.g. the old INT shell from
+    # a prior deploy being flipped to BIGINT) mutates the column types under the
+    # lakehouse SQL analytics endpoint and WEDGES it -- the endpoint then reports
+    # this table as "does not exist", which fails the Direct Lake semantic-model
+    # refresh. Dropping the table first means it is always recreated fresh with
+    # this DataFrame's (BIGINT/int64) schema, so the endpoint catalogs a clean
+    # table and never gets stuck. This is the source equivalent of the manual
+    # drop+recreate unblock.
+    spark.sql(f"DROP TABLE IF EXISTS {ADHERENCE_TABLE}")
     df_adherence_final.write.format("delta").mode("overwrite") \
-        .option("overwriteSchema", "true").saveAsTable(ADHERENCE_TABLE)
+        .saveAsTable(ADHERENCE_TABLE)
 
     adh_count = spark.table(ADHERENCE_TABLE).count()
     adherent = df_adherence_final.filter("adherence_category = 'Adherent'").count()
