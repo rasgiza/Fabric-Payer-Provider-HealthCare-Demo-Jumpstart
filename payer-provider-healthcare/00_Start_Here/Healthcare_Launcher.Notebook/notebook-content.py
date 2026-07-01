@@ -243,24 +243,29 @@ else:
 # CELL ********************
 
 # ============================================================================
-# CELL 4 — Create & Refresh Semantic Model (Direct Lake)
+# CELL 4 — Create Semantic Model (Direct Lake) — refresh deferred to final cell
 # ============================================================================
 # The Semantic Model is rebuilt at runtime here (placeholder GUIDs in the repo
 # would corrupt AS internal metadata). Instead we create it here, AFTER the
 # pipeline has run and Gold tables exist in lh_gold_curated.
 #
+# NOTE: this cell only CREATES the model + rebinds the report. The Direct Lake
+# REFRESH runs in the LAST cell of this notebook, because the lakehouse SQL
+# analytics endpoint exposes newly-written tables asynchronously and needs a
+# few minutes to catch up (see that cell's header for the full rationale).
+#
 # Steps:
 #   1. Find lh_gold_curated lakehouse ID
 #   2. Find any existing SM with the same name and DELETE it, then CREATE a
 #      fresh model. A Direct Lake model that is updated in place keeps its
-#      stale internal table bindings, so the immediate refresh reframes against
-#      the old table identity and fails ("source tables do not exist"). Always
+#      stale internal table bindings, so a refresh reframes against the old
+#      table identity and fails ("source tables do not exist"). Always
 #      creating fresh (matching the reference deployment) binds cleanly.
 #   3. Load all TMDL files from the extracted repo on the lakehouse filesystem
 #   4. Patch expressions.tmdl URL with correct payer-provider-healthcare/lakehouse IDs
 #   5. POST /semanticModels to create the fresh model
 #   6. Rebind the HealthcareAnalyticsDashboard report to the new model GUID
-#   7. Trigger Full refresh
+#   7. Carry the new SM id forward (HEALTHCARE_SM_ID); the final cell refreshes
 # ============================================================================
 
 import requests, time, base64, re, json, os
@@ -546,191 +551,26 @@ else:
                 except Exception as _rb_e:
                     print(f"  [WARN] Report rebind skipped: {_rb_e}")
 
-            # -- Step 5: Trigger refresh -----------------------------------
+            # -- Step 5: Refresh is DEFERRED to the final cell -------------
+            # We do NOT refresh the Direct Lake model here. Direct Lake reads
+            # the gold tables through the lakehouse SQL analytics endpoint, which
+            # exposes newly-written Delta tables ASYNCHRONOUSLY. The last and
+            # most complex gold table (agg_medication_adherence) can lag several
+            # minutes behind the notebook write; refreshing ~15s later fails the
+            # reframe with "source tables do not exist" (a manual refresh minutes
+            # later always succeeds -- confirmed live).
+            #
+            # So we create the model here (its GUID must exist for the report
+            # binding) but run the refresh in the LAST cell of this notebook,
+            # AFTER the RTI + graph steps have already spent several minutes --
+            # free settle time for the endpoint. The refresh cell also retries on
+            # a long budget so it is robust regardless of run order. The new SM
+            # id is carried forward in the global HEALTHCARE_SM_ID.
+            HEALTHCARE_SM_ID = sm_id if sm_id else None
             if sm_id:
-                print("  Waiting 15s for SM initialization...")
-                time.sleep(15)
-
-                token = notebookutils.credentials.getToken("pbi")
-                headers["Authorization"] = f"Bearer {token}"
-
-                # -- Step 5a: Sync the lakehouse SQL analytics endpoint -----
-                # Direct Lake reads the gold tables through the lakehouse SQL
-                # analytics endpoint, which syncs each Delta table individually
-                # and ASYNCHRONOUSLY after the notebooks write them. The sync is
-                # PER TABLE: a single table (e.g. agg_medication_adherence, whose
-                # schema is rewritten via overwriteSchema) can report a per-table
-                # Failure / not-yet-synced state even though the overall sync LRO
-                # returns "Succeeded". Refreshing the model in that window fails
-                # the reframe with "source tables do not exist". So we must inspect
-                # the PER-TABLE status returned by refreshMetadata (not just the
-                # LRO status) and retry until no table reports a failure. If a
-                # table never syncs, we surface its error to aid diagnosis.
-                def _parse_table_sync(payload):
-                    """Normalise a refreshMetadata result into a list of per-table
-                    dicts. The API returns either a bare list or a {'value':[...]}
-                    (or {'tablesSyncStatus':[...]}) envelope."""
-                    if isinstance(payload, list):
-                        rows = payload
-                    elif isinstance(payload, dict):
-                        rows = payload.get("value") or payload.get("tablesSyncStatus") or []
-                    else:
-                        rows = []
-                    return [r for r in rows if isinstance(r, dict)]
-
-                sql_ep_id = None
-                try:
-                    lh_detail = requests.get(f"{FABRIC_API}/lakehouses/{lh_gold_id}", headers=headers)
-                    sql_ep_id = None
-                    if lh_detail.status_code == 200:
-                        sql_ep_id = (lh_detail.json()
-                                     .get("properties", {})
-                                     .get("sqlEndpointProperties", {})
-                                     .get("id"))
-                    if sql_ep_id:
-                        print(f"  Syncing SQL analytics endpoint metadata ({sql_ep_id})...")
-                        synced = False
-                        last_failures = []
-                        for sync_attempt in range(1, 9):  # up to ~8 tries
-                            sr = requests.post(
-                                f"{FABRIC_API}/sqlEndpoints/{sql_ep_id}/refreshMetadata",
-                                headers=headers, json={},
-                            )
-                            tbl_status = []
-                            if sr.status_code == 202:
-                                st, body = wait_lro(sr, headers, timeout=180)
-                                if st == "Succeeded":
-                                    tbl_status = _parse_table_sync(body)
-                                else:
-                                    print(f"    refreshMetadata LRO {st} (attempt {sync_attempt})")
-                            elif sr.status_code in (200, 201):
-                                try:
-                                    tbl_status = _parse_table_sync(sr.json())
-                                except Exception:
-                                    tbl_status = []
-                            else:
-                                print(f"    refreshMetadata HTTP {sr.status_code} (attempt {sync_attempt})")
-
-                            last_failures = [
-                                t for t in tbl_status
-                                if str(t.get("status", "")).strip().lower()
-                                in ("failure", "failed", "error")
-                            ]
-                            if tbl_status and not last_failures:
-                                synced = True
-                            elif not tbl_status and sr.status_code in (200, 201, 202):
-                                # Could not read per-table detail -- trust the LRO
-                                synced = True
-
-                            if synced:
-                                print(f"  SQL endpoint metadata synced (attempt {sync_attempt})")
-                                break
-
-                            if last_failures:
-                                names = ", ".join(
-                                    str(t.get("tableName", "?")) for t in last_failures[:6]
-                                )
-                                print(f"    Tables not synced yet (attempt {sync_attempt}): {names}")
-                            time.sleep(30)
-                            token = notebookutils.credentials.getToken("pbi")
-                            headers["Authorization"] = f"Bearer {token}"
-
-                        if not synced:
-                            if last_failures:
-                                print("  [WARN] SQL endpoint could not sync these tables:")
-                                for t in last_failures[:6]:
-                                    err = t.get("error") or {}
-                                    msg = ""
-                                    if isinstance(err, dict):
-                                        msg = err.get("message") or err.get("errorCode") or ""
-                                    print(f"    - {t.get('tableName', '?')}: {str(msg)[:160]}")
-                            print("  [WARN] SQL endpoint sync not confirmed -- waiting 60s as fallback")
-                            time.sleep(60)
-                    else:
-                        print("  [WARN] SQL endpoint id not found -- waiting 60s as fallback")
-                        time.sleep(60)
-                except Exception as _sync_e:
-                    print(f"  [WARN] SQL endpoint sync skipped ({_sync_e}) -- waiting 60s as fallback")
-                    time.sleep(60)
-
-                token = notebookutils.credentials.getToken("pbi")
-                headers["Authorization"] = f"Bearer {token}"
-
-                pbi_base = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
-                refresh_url = f"{pbi_base}/datasets/{sm_id}/refreshes"
-
-                MAX_ATTEMPTS = 3
-                for attempt in range(1, MAX_ATTEMPTS + 1):
-                    print(f"  Triggering refresh (attempt {attempt}/{MAX_ATTEMPTS})...")
-                    r = requests.post(refresh_url, headers=headers, json={"type": "Full"})
-
-                    if r.status_code not in (200, 202):
-                        print(f"  Refresh trigger HTTP {r.status_code}: {r.text[:300]}")
-                        if attempt < MAX_ATTEMPTS:
-                            print(f"  Retrying in 15s...")
-                            time.sleep(15)
-                            token = notebookutils.credentials.getToken("pbi")
-                            headers["Authorization"] = f"Bearer {token}"
-                            continue
-                        else:
-                            print("  All attempts failed. Refresh manually from the workspace.")
-                            break
-
-                    # Poll for completion
-                    success = False
-                    for poll_i in range(60):
-                        time.sleep(10)
-                        poll_resp = requests.get(refresh_url, headers=headers)
-                        if poll_resp.status_code == 200:
-                            refreshes = poll_resp.json().get("value", [])
-                            if refreshes:
-                                latest = refreshes[0]
-                                status = latest.get("status", "Unknown")
-                                if status in ("Completed", "Succeeded"):
-                                    print(f"  Refresh COMPLETED after {(poll_i+1)*10}s")
-                                    success = True
-                                    break
-                                elif status == "Failed":
-                                    err_msg = latest.get("serviceExceptionJson", "")
-                                    print(f"  Refresh FAILED after {(poll_i+1)*10}s")
-                                    if err_msg:
-                                        try:
-                                            err_obj = json.loads(err_msg)
-                                            print(f"  Error: {err_obj.get('errorCode', '')}")
-                                            print(f"  Detail: {err_obj.get('errorDescription', '')[:300]}")
-                                        except Exception:
-                                            print(f"  Error: {err_msg[:300]}")
-                                    break
-                            elif poll_i % 3 == 0:
-                                print(f"  [{(poll_i+1)*10}s] Status: {status}...")
-                    else:
-                        print("  Refresh still running after 10 min. Check workspace.")
-                        break
-
-                    if success:
-                        break
-                    elif attempt < MAX_ATTEMPTS:
-                        print(f"  Retrying in 20s...")
-                        time.sleep(20)
-                        # Re-sync the SQL analytics endpoint before retrying: a
-                        # "source tables do not exist" failure usually means a
-                        # table's metadata hadn't landed yet, and the sync is
-                        # eventually consistent -- another refreshMetadata pass
-                        # typically makes the lagging table visible.
-                        try:
-                            if sql_ep_id:
-                                rsr = requests.post(
-                                    f"{FABRIC_API}/sqlEndpoints/{sql_ep_id}/refreshMetadata",
-                                    headers=headers, json={},
-                                )
-                                if rsr.status_code == 202:
-                                    wait_lro(rsr, headers, timeout=180)
-                        except Exception:
-                            pass
-                        token = notebookutils.credentials.getToken("pbi")
-                        headers["Authorization"] = f"Bearer {token}"
-                    else:
-                        print("  All refresh attempts failed. Refresh manually from the workspace.")
+                print(f"  SM created ({sm_id}). Refresh deferred to the final cell.")
+            else:
+                print("  [WARN] SM not created -- final refresh cell will look it up by name.")
 
 print("=" * 60)
 
@@ -2467,6 +2307,175 @@ if ont_result == "[OK]":
     print(f"  ONTOLOGY:    {ONTOLOGY_NAME:<36} {ont_result}")
     print(f"  GRAPH:       NB_Deploy_Graph_Model{' ':>16} {graph_st}")
     print("=" * 60)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# ============================================================================
+# CELL 8 — Refresh Semantic Model (Direct Lake) — deferred, long budget
+# ============================================================================
+# This is the LAST cell on purpose. Cell 4 only CREATES the HealthcareDemoHLS
+# model; the Direct Lake REFRESH happens here.
+#
+# WHY DEFERRED: Direct Lake reads the gold tables through the lakehouse SQL
+# analytics endpoint, which exposes newly-written Delta tables ASYNCHRONOUSLY.
+# The last and most complex gold table (agg_medication_adherence) can lag a few
+# minutes behind the notebook write. Refreshing immediately (as Cell 4 used to)
+# fails the reframe with "source tables do not exist", while a manual refresh a
+# few minutes later always succeeds. By running the refresh at the very end --
+# after the RTI + graph steps have already spent several minutes -- the endpoint
+# has had time to catch up. We also retry on a long (~12 min) budget and nudge
+# the endpoint before each attempt, so a slow tenant still lands cleanly.
+# ============================================================================
+
+import requests, time, json
+
+print("=" * 60)
+print("  SEMANTIC MODEL -- Direct Lake Refresh (deferred to final cell)")
+print("=" * 60)
+
+_token = notebookutils.credentials.getToken("pbi")
+_hdrs = {"Authorization": f"Bearer {_token}", "Content-Type": "application/json"}
+_FABRIC = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
+_PBI = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
+SM_NAME = "HealthcareDemoHLS"
+
+
+def _wait_lro(resp, hdr, timeout=180):
+    """Poll an LRO to a terminal state; return the final status string."""
+    loc = resp.headers.get("Location", "")
+    retry = int(resp.headers.get("Retry-After", 5) or 5)
+    elapsed = 0
+    while loc and elapsed < timeout:
+        time.sleep(retry)
+        elapsed += retry
+        rr = requests.get(loc, headers=hdr)
+        if rr.status_code != 200:
+            continue
+        st = rr.json().get("status", "")
+        if st == "Succeeded":
+            return "Succeeded"
+        if st in ("Failed", "Cancelled"):
+            return st
+    return "Timeout"
+
+
+# -- Resolve the SM id (prefer the one Cell 4 created) ---------------------
+sm_id = globals().get("HEALTHCARE_SM_ID")
+if not sm_id:
+    _r = requests.get(f"{_FABRIC}/items?type=SemanticModel", headers=_hdrs)
+    for _it in _r.json().get("value", []):
+        if _it["displayName"] == SM_NAME:
+            sm_id = _it["id"]
+            break
+
+if not sm_id:
+    print(f"  [SKIP] {SM_NAME} not found -- run Cell 4 first.")
+else:
+    print(f"  Semantic model: {SM_NAME} ({sm_id})")
+
+    # -- Resolve lakehouse SQL endpoint (to nudge metadata sync) -----------
+    sql_ep_id = None
+    try:
+        _lr = requests.get(f"{_FABRIC}/lakehouses", headers=_hdrs)
+        _lh_id = None
+        for _lh in _lr.json().get("value", []):
+            if _lh["displayName"] == "lh_gold_curated":
+                _lh_id = _lh["id"]
+                break
+        if _lh_id:
+            _ld = requests.get(f"{_FABRIC}/lakehouses/{_lh_id}", headers=_hdrs)
+            if _ld.status_code == 200:
+                sql_ep_id = (_ld.json().get("properties", {})
+                             .get("sqlEndpointProperties", {}).get("id"))
+    except Exception as _e:
+        print(f"  [WARN] Could not resolve SQL endpoint: {_e}")
+
+    refresh_url = f"{_PBI}/datasets/{sm_id}/refreshes"
+
+    # -- Long-budget refresh loop ------------------------------------------
+    # Direct Lake table exposure is eventually consistent. Attempt the refresh;
+    # on the "source tables do not exist" reframe error, nudge the endpoint and
+    # wait, retrying for up to ~12 minutes. A NON-timing failure stops early
+    # (retrying won't help). Success stops immediately.
+    MAX_MINUTES = 12
+    deadline = time.time() + MAX_MINUTES * 60
+    attempt = 0
+    done = False
+    while time.time() < deadline and not done:
+        attempt += 1
+
+        # Best-effort endpoint metadata nudge before each attempt.
+        if sql_ep_id:
+            try:
+                _sr = requests.post(
+                    f"{_FABRIC}/sqlEndpoints/{sql_ep_id}/refreshMetadata",
+                    headers=_hdrs, json={},
+                )
+                if _sr.status_code == 202:
+                    _wait_lro(_sr, _hdrs, timeout=180)
+            except Exception:
+                pass
+
+        _token = notebookutils.credentials.getToken("pbi")
+        _hdrs["Authorization"] = f"Bearer {_token}"
+
+        print(f"  Triggering refresh (attempt {attempt})...")
+        r = requests.post(refresh_url, headers=_hdrs, json={"type": "Full"})
+        if r.status_code not in (200, 202):
+            print(f"  Refresh trigger HTTP {r.status_code}: {r.text[:200]}")
+            time.sleep(30)
+            continue
+
+        # Poll this refresh to a terminal state.
+        for _ in range(60):
+            time.sleep(10)
+            pr = requests.get(refresh_url, headers=_hdrs)
+            if pr.status_code != 200:
+                continue
+            vals = pr.json().get("value", [])
+            if not vals:
+                continue
+            status = vals[0].get("status", "Unknown")
+            if status in ("Completed", "Succeeded"):
+                print(f"  Refresh COMPLETED (attempt {attempt}).")
+                done = True
+                break
+            if status == "Failed":
+                emsg = vals[0].get("serviceExceptionJson", "")
+                try:
+                    detail = json.loads(emsg).get("errorDescription", "") or emsg
+                except Exception:
+                    detail = emsg
+                if "do not exist" in detail or "does not exist" in detail:
+                    print(f"  Attempt {attempt}: tables not exposed yet -- endpoint still syncing.")
+                else:
+                    print(f"  Refresh FAILED (attempt {attempt}): {detail[:250]}")
+                    done = True  # non-timing failure won't self-heal
+                break
+
+        if done:
+            break
+
+        remaining = int(deadline - time.time())
+        if remaining <= 0:
+            break
+        print(f"  Waiting 45s for endpoint to catch up (~{remaining // 60}m budget left)...")
+        time.sleep(45)
+
+    if not done:
+        print("  [WARN] Refresh not confirmed within budget.")
+        print("         The gold tables are likely still syncing to the SQL")
+        print(f"         endpoint. Click Refresh on {SM_NAME} in the workspace")
+        print("         in a few minutes -- it will then succeed.")
+
+print("=" * 60)
 
 # METADATA ********************
 
