@@ -477,18 +477,43 @@ df_latest_spend = (
     )
 )
 
-# Get most recent facility for each patient from ANY ADT event
+# Get most recent facility for each patient from ANY event (claim OR ADT).
+# The high-cost alerts are ranked by claims spend, and a high-spend patient is
+# frequently NEVER admitted (claims only, no ADT event). Deriving the facility
+# from ADT events alone therefore leaves those patients with a NULL facility ->
+# "Unknown" in the dashboard. Union the facility_id carried on BOTH the claims
+# and ADT streams and take the patient's latest one, so claims-only spenders
+# still resolve to a facility. Also carry the ADT-provided facility_name as a
+# fallback for the dim_facility lookup.
+_adt_fac = df_adt.select(
+    "patient_id",
+    F.col("event_timestamp").alias("fac_event_ts"),
+    "facility_id",
+    F.col("facility_name").alias("event_facility_name"),
+    F.col("latitude").alias("evt_latitude"),
+    F.col("longitude").alias("evt_longitude"),
+)
+_clm_fac = df_claims.select(
+    "patient_id",
+    F.col("event_timestamp").alias("fac_event_ts"),
+    "facility_id",
+    F.lit(None).cast("string").alias("event_facility_name"),
+    F.col("latitude").alias("evt_latitude"),
+    F.col("longitude").alias("evt_longitude"),
+)
 df_patient_facility = (
-    df_adt
+    _adt_fac.unionByName(_clm_fac)
+    .filter(F.col("facility_id").isNotNull())
     .withColumn("rn", F.row_number().over(
-        Window.partitionBy("patient_id").orderBy(F.col("event_timestamp").desc())
+        Window.partitionBy("patient_id").orderBy(F.col("fac_event_ts").desc())
     ))
     .filter(F.col("rn") == 1)
     .select(
         F.col("patient_id").alias("fac_patient_id"),
         F.col("facility_id").alias("patient_facility_id"),
-        F.col("latitude").alias("adt_latitude"),
-        F.col("longitude").alias("adt_longitude"),
+        F.col("event_facility_name"),
+        F.col("evt_latitude").alias("adt_latitude"),
+        F.col("evt_longitude").alias("adt_longitude"),
     )
 )
 
@@ -559,7 +584,7 @@ df_output = df_combined.select(
     F.col("first_name").alias("patient_first_name"),
     F.col("last_name").alias("patient_last_name"),
     F.col("patient_facility_id").alias("facility_id"),
-    F.coalesce(df_facilities["facility_name"], F.lit("Unknown")).alias("facility_name"),
+    F.coalesce(df_facilities["facility_name"], F.col("event_facility_name"), F.lit("Unknown")).alias("facility_name"),
     "rolling_spend_30d",
     "rolling_spend_90d",
     "claims_count_30d",
