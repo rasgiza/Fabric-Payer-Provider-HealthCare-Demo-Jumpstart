@@ -1598,17 +1598,41 @@ if DEPLOY_STREAMING and not ES_CONNECTION_STRING:
                 _ce_src = next((s for s in _topo_resp.json().get("sources", [])
                                 if s.get("type") == "CustomEndpoint"), None)
                 if _ce_src:
-                    _conn_resp = _rq.get(
-                        f"{_cs_api}/eventstreams/{_es_item['id']}/sources/{_ce_src['id']}/connection",
-                        headers=_cs_hdrs)
-                    if _conn_resp.status_code == 200:
-                        ES_CONNECTION_STRING = _conn_resp.json().get("accessKeys", {}).get("primaryConnectionString", "")
-                        if ES_CONNECTION_STRING:
-                            print("  [OK] Auto-fetched Eventstream connection string via REST API")
+                    # The CustomEndpoint's SAS authorization rule (the Event
+                    # Hub-compatible backend that issues the connection string) is
+                    # provisioned ASYNCHRONOUSLY after the Eventstream topology is
+                    # wired. Until it lands, /connection returns
+                    #   HTTP 404 AuthorizationRuleNotFound
+                    # ("backend resource is not found"). This is timing, not a
+                    # failure -- retry on a budget until the rule appears.
+                    import time as _time
+                    _conn_url = (f"{_cs_api}/eventstreams/{_es_item['id']}"
+                                 f"/sources/{_ce_src['id']}/connection")
+                    _conn_deadline = _time.time() + 5 * 60
+                    _conn_attempt = 0
+                    while _time.time() < _conn_deadline and not ES_CONNECTION_STRING:
+                        _conn_attempt += 1
+                        _cs_token = notebookutils.credentials.getToken("pbi")
+                        _cs_hdrs["Authorization"] = f"Bearer {_cs_token}"
+                        _conn_resp = _rq.get(_conn_url, headers=_cs_hdrs)
+                        if _conn_resp.status_code == 200:
+                            ES_CONNECTION_STRING = _conn_resp.json().get("accessKeys", {}).get("primaryConnectionString", "")
+                            if ES_CONNECTION_STRING:
+                                print(f"  [OK] Auto-fetched Eventstream connection string (attempt {_conn_attempt})")
+                            else:
+                                print("  [WARN] Connection API returned no primaryConnectionString")
+                            break
+                        elif _conn_resp.status_code == 404 and "AuthorizationRuleNotFound" in _conn_resp.text:
+                            _left = int(_conn_deadline - _time.time())
+                            if _left <= 0:
+                                print("  [WARN] Connection auth rule still not provisioned after 5 min")
+                                break
+                            print(f"  Connection not provisioned yet (attempt {_conn_attempt}); "
+                                  f"waiting 20s (~{_left // 60}m left)...")
+                            _time.sleep(20)
                         else:
-                            print("  [WARN] Connection API returned no primaryConnectionString")
-                    else:
-                        print(f"  [WARN] Connection API: HTTP {_conn_resp.status_code} {_conn_resp.text[:200]}")
+                            print(f"  [WARN] Connection API: HTTP {_conn_resp.status_code} {_conn_resp.text[:200]}")
+                            break
                 else:
                     print("  [WARN] No CustomEndpoint source found in Eventstream topology")
             else:
