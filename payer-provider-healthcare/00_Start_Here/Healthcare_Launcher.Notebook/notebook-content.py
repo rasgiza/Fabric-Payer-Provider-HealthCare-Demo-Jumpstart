@@ -337,8 +337,10 @@ else:
     # refresh below reframes against the old table identity and fails with
     # "source tables do not exist". The reference deployment instead always
     # CREATES the model fresh, which binds cleanly. So we delete any existing
-    # model (placeholder or prior deploy) and recreate it, then rebind the
-    # HealthcareAnalyticsDashboard report to the new GUID (Step 4b).
+    # model (placeholder or prior deploy) and recreate it, then recreate/rebind
+    # the HealthcareAnalyticsDashboard report to the new GUID (Step 4b).
+    # NOTE: deleting the SM cascade-deletes every report bound to it, so Step 4b
+    # RECREATES the report from its git definition (a plain rebind is not enough).
     existing_sm_id = None
     resp = requests.get(f"{FABRIC_API}/items?type=SemanticModel", headers=headers)
     resp.raise_for_status()
@@ -520,13 +522,18 @@ else:
                 print(f"  Response: {r.text[:500]}")
                 sm_id = None
 
-            # -- Step 4b: Rebind the report to the fresh SM GUID ------------
-            # The HealthcareAnalyticsDashboard report was deployed by fabric-cicd
-            # bound (byPath) to the SM we just deleted. Point it at the freshly
-            # created model so the report keeps working after recreation.
+            # -- Step 4b: Recreate/rebind the report to the fresh SM GUID ---
+            # Deleting the semantic model in Step 4a CASCADE-DELETES every report
+            # bound to it (Fabric behaviour): the HealthcareAnalyticsDashboard
+            # report was deployed by fabric-cicd bound (byPath) to that SM, so it
+            # is REMOVED along with the delete. A plain Rebind afterward finds
+            # nothing. We therefore RECREATE the report from its git definition,
+            # bound byConnection to the freshly created model GUID. (If the report
+            # somehow survived -- delete didn't cascade -- we just Rebind it.)
             if sm_id:
                 try:
                     REPORT_NAME = "HealthcareAnalyticsDashboard"
+                    REPORT_REPO_DIR = "payer-provider-healthcare/06_AI_and_Graph/HealthcareAnalyticsDashboard.Report"
                     pbi_base_rb = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
                     rep_resp = requests.get(
                         f"{FABRIC_API}/items?type=Report", headers=headers
@@ -536,7 +543,9 @@ else:
                         if it["displayName"] == REPORT_NAME:
                             report_id = it["id"]
                             break
+
                     if report_id:
+                        # Report survived the SM delete -> just rebind it.
                         rb = requests.post(
                             f"{pbi_base_rb}/reports/{report_id}/Rebind",
                             headers=headers,
@@ -547,9 +556,115 @@ else:
                         else:
                             print(f"  [WARN] Rebind report HTTP {rb.status_code}: {rb.text[:200]}")
                     else:
-                        print(f"  [WARN] Report {REPORT_NAME} not found yet -- it will bind on next report deploy")
+                        # Report was cascade-deleted with the old SM -> recreate
+                        # it from the git definition, bound to the new model GUID.
+                        print(f"  Report {REPORT_NAME} was removed with the old SM -- recreating from definition...")
+
+                        # Locate the report definition (lakehouse extract, else GitHub).
+                        rep_base = None
+                        for base_prefix in [".lakehouse/default/Files/src", "/lakehouse/default/Files/src"]:
+                            if not os.path.isdir(base_prefix):
+                                continue
+                            direct = os.path.join(base_prefix, REPORT_REPO_DIR)
+                            if os.path.isdir(direct):
+                                rep_base = direct
+                                break
+                            for sub in os.listdir(base_prefix):
+                                nested = os.path.join(base_prefix, sub, REPORT_REPO_DIR)
+                                if os.path.isdir(nested):
+                                    rep_base = nested
+                                    break
+                            if rep_base:
+                                break
+
+                        rep_parts = []
+                        if rep_base:
+                            for root, dirs, files in os.walk(rep_base):
+                                for fname in sorted(files):
+                                    fpath = os.path.join(root, fname)
+                                    rel = os.path.relpath(fpath, rep_base).replace("\\", "/")
+                                    if rel in (".platform", "definition.pbir"):
+                                        continue  # .pbir is replaced below with byConnection
+                                    with open(fpath, "rb") as f:
+                                        raw = f.read()
+                                    if raw.startswith(b"\xef\xbb\xbf"):
+                                        raw = raw[3:]
+                                    rep_parts.append({
+                                        "path": rel,
+                                        "payload": base64.b64encode(raw).decode(),
+                                        "payloadType": "InlineBase64",
+                                    })
+                        else:
+                            # GitHub fallback (mirrors the SM download above).
+                            _gh_owner = globals().get("GITHUB_OWNER", "rasgiza")
+                            _gh_repo = globals().get("GITHUB_REPO", "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart")
+                            _gh_branch = globals().get("GITHUB_BRANCH", "main")
+                            _tree_url = f"https://api.github.com/repos/{_gh_owner}/{_gh_repo}/git/trees/{_gh_branch}?recursive=1"
+                            _tree_r = requests.get(_tree_url, headers={"Accept": "application/vnd.github.v3+json"})
+                            _tree_r.raise_for_status()
+                            _rp = REPORT_REPO_DIR + "/"
+                            for entry in _tree_r.json()["tree"]:
+                                if entry["type"] != "blob" or not entry["path"].startswith(_rp):
+                                    continue
+                                rel = entry["path"][len(_rp):]
+                                if rel in (".platform", "definition.pbir"):
+                                    continue
+                                raw_url = f"https://raw.githubusercontent.com/{_gh_owner}/{_gh_repo}/{_gh_branch}/{entry['path']}"
+                                dr = requests.get(raw_url)
+                                dr.raise_for_status()
+                                raw = dr.content
+                                if raw.startswith(b"\xef\xbb\xbf"):
+                                    raw = raw[3:]
+                                rep_parts.append({
+                                    "path": rel,
+                                    "payload": base64.b64encode(raw).decode(),
+                                    "payloadType": "InlineBase64",
+                                })
+
+                        # Bind the recreated report to the new model GUID via a
+                        # byConnection definition.pbir (live XMLA connection).
+                        pbir_body = {
+                            "version": "4.0",
+                            "datasetReference": {
+                                "byConnection": {
+                                    "connectionString": None,
+                                    "pbiServiceModelId": None,
+                                    "pbiModelVirtualServerName": "sobe_wowvirtualserver",
+                                    "pbiModelDatabaseName": sm_id,
+                                    "name": "EntityDataSource",
+                                    "connectionType": "pbiServiceXmlaStyleLive",
+                                }
+                            },
+                        }
+                        rep_parts.append({
+                            "path": "definition.pbir",
+                            "payload": base64.b64encode(json.dumps(pbir_body).encode("utf-8")).decode(),
+                            "payloadType": "InlineBase64",
+                        })
+
+                        if not rep_parts or len(rep_parts) < 2:
+                            print(f"  [WARN] Report definition not found -- cannot recreate {REPORT_NAME}")
+                        else:
+                            token = notebookutils.credentials.getToken("pbi")
+                            headers["Authorization"] = f"Bearer {token}"
+                            cr = requests.post(
+                                f"{FABRIC_API}/reports",
+                                headers=headers,
+                                json={"displayName": REPORT_NAME, "definition": {"parts": rep_parts}},
+                            )
+                            print(f"  Recreate report HTTP {cr.status_code}")
+                            if cr.status_code in (200, 201):
+                                print(f"  Recreated report {REPORT_NAME} -> SM {sm_id}")
+                            elif cr.status_code == 202:
+                                st_r, body_r = wait_lro(cr, headers, timeout=180)
+                                if st_r == "Succeeded":
+                                    print(f"  Recreated report {REPORT_NAME} (async) -> SM {sm_id}")
+                                else:
+                                    print(f"  [WARN] Report recreate LRO {st_r}: {body_r}")
+                            else:
+                                print(f"  [FAIL] Recreate report HTTP {cr.status_code}: {cr.text[:300]}")
                 except Exception as _rb_e:
-                    print(f"  [WARN] Report rebind skipped: {_rb_e}")
+                    print(f"  [WARN] Report recreate/rebind skipped: {_rb_e}")
 
             # -- Step 5: Refresh is DEFERRED to the final cell -------------
             # We do NOT refresh the Direct Lake model here. Direct Lake reads
