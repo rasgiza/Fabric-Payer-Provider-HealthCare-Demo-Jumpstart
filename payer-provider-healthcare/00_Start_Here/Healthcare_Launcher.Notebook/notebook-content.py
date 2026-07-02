@@ -563,6 +563,180 @@ print("=" * 60)
 # CELL ********************
 
 # ============================================================================
+# CELL 4b — Bind Report to Semantic Model (byConnection)
+# ============================================================================
+# The HealthcareAnalyticsDashboard report is deployed by fabric-cicd from its
+# PBIR folder with a byPath binding (../HealthcareDemoHLS.SemanticModel). A
+# byPath binding resolves to a datasetId at the REST layer, but the resulting
+# report connection does NOT reliably open against an API-created/updated
+# Direct Lake model -- the report then hangs forever at "Loading your
+# report...". (This is why every earlier SM-only fix left the dashboard stuck.)
+#
+# The fix (mirrors the working standalone repo's deploy_report.py): rebind the
+# report to the model BY CONNECTION -- definition.pbir ->
+#   { "datasetReference": { "byConnection": {
+#       "connectionString": "semanticmodelid=<SM_ID>" } } }
+# -- and push the whole definition back with updateDefinition. That produces a
+# concrete live connection to the real model id, so the report renders.
+#
+# We update the EXISTING report in place (stable item id, no delete). The
+# on-disk definition.pbir stays byPath so fabric-cicd can create the item on a
+# fresh install; this cell then authoritatively rebinds it once the real SM id
+# is known (carried from Cell 4 as HEALTHCARE_SM_ID, else looked up by name).
+# ============================================================================
+
+import requests, time, base64, os, json as _json
+
+print("=" * 60)
+print("  REPORT -- Bind to Semantic Model (byConnection)")
+print("=" * 60)
+
+token = notebookutils.credentials.getToken("pbi")
+headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+FABRIC_API = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
+
+REPORT_NAME = "HealthcareAnalyticsDashboard"
+REPORT_REPO_DIR = "payer-provider-healthcare/06_AI_and_Graph/HealthcareAnalyticsDashboard.Report"
+
+def _rpt_b64(raw):
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+    return base64.b64encode(raw).decode()
+
+# -- Resolve the semantic model id ----------------------------------------
+sm_id = globals().get("HEALTHCARE_SM_ID")
+if not sm_id:
+    r = requests.get(f"{FABRIC_API}/items?type=SemanticModel", headers=headers)
+    for sm in r.json().get("value", []):
+        if sm["displayName"] == "HealthcareDemoHLS":
+            sm_id = sm["id"]
+            break
+
+if not sm_id:
+    print("  [SKIP] HealthcareDemoHLS not found -- run Cell 4 first.")
+else:
+    print(f"  Semantic Model: HealthcareDemoHLS ({sm_id})")
+
+    # -- Find the existing report (deployed by fabric-cicd) ----------------
+    report_id = None
+    r = requests.get(f"{FABRIC_API}/items?type=Report", headers=headers)
+    for it in r.json().get("value", []):
+        if it["displayName"] == REPORT_NAME:
+            report_id = it["id"]
+            break
+
+    if not report_id:
+        print(f"  [SKIP] Report {REPORT_NAME} not found -- fabric-cicd should deploy it.")
+    else:
+        print(f"  Report: {REPORT_NAME} ({report_id})")
+
+        # -- Load report body parts (lakehouse extract, else GitHub raw) ---
+        rpt_base = None
+        for base_prefix in [".lakehouse/default/Files/src", "/lakehouse/default/Files/src"]:
+            if not os.path.isdir(base_prefix):
+                continue
+            direct = os.path.join(base_prefix, REPORT_REPO_DIR)
+            if os.path.isdir(direct):
+                rpt_base = direct
+                break
+            for sub in os.listdir(base_prefix):
+                nested = os.path.join(base_prefix, sub, REPORT_REPO_DIR)
+                if os.path.isdir(nested):
+                    rpt_base = nested
+                    break
+            if rpt_base:
+                break
+
+        parts = []
+        if rpt_base:
+            print(f"  Report definition dir: {rpt_base}")
+            def_dir = os.path.join(rpt_base, "definition")
+            for root, _dirs, files in os.walk(def_dir):
+                for fname in sorted(files):
+                    fpath = os.path.join(root, fname)
+                    rel = "definition/" + os.path.relpath(fpath, def_dir).replace("\\", "/")
+                    with open(fpath, "rb") as f:
+                        parts.append({"path": rel, "payload": _rpt_b64(f.read()),
+                                      "payloadType": "InlineBase64"})
+        else:
+            print("  Lakehouse extract not found. Downloading report from GitHub...")
+            _gh_owner = globals().get("GITHUB_OWNER", "rasgiza")
+            _gh_repo = globals().get("GITHUB_REPO", "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart")
+            _gh_branch = globals().get("GITHUB_BRANCH", "main")
+            _tree_url = f"https://api.github.com/repos/{_gh_owner}/{_gh_repo}/git/trees/{_gh_branch}?recursive=1"
+            _tree_r = requests.get(_tree_url, headers={"Accept": "application/vnd.github.v3+json"})
+            _tree_r.raise_for_status()
+            _prefix = REPORT_REPO_DIR + "/definition/"
+            for entry in _tree_r.json()["tree"]:
+                p = entry["path"]
+                if entry["type"] != "blob" or not p.startswith(_prefix):
+                    continue
+                rel = "definition/" + p[len(_prefix):]
+                raw_url = f"https://raw.githubusercontent.com/{_gh_owner}/{_gh_repo}/{_gh_branch}/{p}"
+                dr = requests.get(raw_url)
+                dr.raise_for_status()
+                parts.append({"path": rel, "payload": _rpt_b64(dr.content),
+                              "payloadType": "InlineBase64"})
+
+        # -- Generate definition.pbir with byConnection to the real SM id ---
+        pbir = {
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definitionProperties/2.0.0/schema.json",
+            "version": "4.0",
+            "datasetReference": {"byConnection": {"connectionString": f"semanticmodelid={sm_id}"}},
+        }
+        parts = [p for p in parts if p["path"] != "definition.pbir"]
+        parts.insert(0, {"path": "definition.pbir",
+                         "payload": base64.b64encode(_json.dumps(pbir, indent=2).encode()).decode(),
+                         "payloadType": "InlineBase64"})
+
+        print(f"  Loaded {len(parts)} report parts (definition.pbir -> byConnection semanticmodelid={sm_id})")
+
+        if len(parts) < 2:
+            print("  [FAIL] No report body parts loaded -- skipping rebind.")
+        else:
+            # -- updateDefinition on the existing report (in place) --------
+            token = notebookutils.credentials.getToken("pbi")
+            headers["Authorization"] = f"Bearer {token}"
+            ur = requests.post(
+                f"{FABRIC_API}/reports/{report_id}/updateDefinition",
+                headers=headers,
+                json={"definition": {"parts": parts}},
+            )
+            print(f"  UpdateDefinition HTTP {ur.status_code}")
+            if ur.status_code == 202:
+                loc = ur.headers.get("Location", "")
+                retry = int(ur.headers.get("Retry-After", 5))
+                elapsed = 0
+                while elapsed < 180:
+                    time.sleep(retry)
+                    elapsed += retry
+                    pr = requests.get(loc, headers=headers)
+                    if pr.status_code != 200:
+                        continue
+                    st = pr.json().get("status", "")
+                    if st == "Succeeded":
+                        print(f"  Report bound byConnection -> {sm_id}")
+                        break
+                    if st in ("Failed", "Cancelled"):
+                        print(f"  [WARN] UpdateDefinition {st}: {pr.text[:300]}")
+                        break
+            elif ur.status_code in (200, 201):
+                print(f"  Report bound byConnection -> {sm_id}")
+            else:
+                print(f"  [FAIL] UpdateDefinition HTTP {ur.status_code}: {ur.text[:400]}")
+
+print("=" * 60)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# ============================================================================
 # CELL 5 — Deploy Real-Time Intelligence (RTI) streaming topology
 # ============================================================================
 # Eventhouse + KQL Database are already deployed as Git artifacts (Stage 2).
