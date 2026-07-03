@@ -563,167 +563,217 @@ print("=" * 60)
 # CELL ********************
 
 # ============================================================================
-# CELL 4b — Bind Report to Semantic Model (byConnection)
+# CELL 4b — Deploy the Power BI report (.pbix import + rebind)
 # ============================================================================
-# The HealthcareAnalyticsDashboard report is deployed by fabric-cicd from its
-# PBIR folder with a byPath binding (../HealthcareDemoHLS.SemanticModel). A
-# byPath binding resolves to a datasetId at the REST layer, but the resulting
-# report connection does NOT reliably open against an API-created/updated
-# Direct Lake model -- the report then hangs forever at "Loading your
-# report...". (This is why every earlier SM-only fix left the dashboard stuck.)
+# WHY A .pbix IMPORT INSTEAD OF THE PBIR FOLDER:
+# fabric-cicd deploys the report from a PBIR folder (format=PBIR). A brand-new
+# PBIR report layered on a freshly API-created Direct Lake model renders fine
+# server-side (a PDF export succeeds) but hangs in the BROWSER at "Loading your
+# report..." -- a client-side open failure, not a data/binding problem. The
+# proven-working standalone build avoids this entirely by shipping a thin
+# live-connection .pbix and importing it through the Power BI Import API, which
+# produces a classic Analysis-Services live-connect report that the browser
+# opens reliably.
 #
-# The fix (mirrors the working standalone repo's deploy_report.py): rebind the
-# report to the model BY CONNECTION -- definition.pbir ->
-#   { "datasetReference": { "byConnection": {
-#       "connectionString": "semanticmodelid=<SM_ID>" } } }
-# -- and push the whole definition back with updateDefinition. That produces a
-# concrete live connection to the real model id, so the report renders.
+# This cell mirrors that approach:
+#   1. Locate the .pbix (lakehouse extract, else download from GitHub).
+#   2. Patch its embedded Connections part so the live connection points at THIS
+#      workspace + the real Semantic Model id (the .pbix carries the author's
+#      original ids; we rewrite them for portability).
+#   3. Delete the fabric-cicd PBIR report of the same name (idempotent).
+#   4. Import the patched .pbix via POST /imports.
+#   5. Rebind the imported report to the Semantic Model and verify its pages.
 #
-# We update the EXISTING report in place (stable item id, no delete). The
-# on-disk definition.pbir stays byPath so fabric-cicd can create the item on a
-# fresh install; this cell then authoritatively rebinds it once the real SM id
-# is known (carried from Cell 4 as HEALTHCARE_SM_ID, else looked up by name).
+# The .pbix holds report layout only (6 pages, live connection) -- no data.
+# Data flows Lakehouse -> Direct Lake SM -> report at query time.
+# To update visuals: edit in Power BI Desktop, re-save the .pbix, commit it.
 # ============================================================================
 
-import requests, time, base64, os, json as _json
+import requests, json as _json, os, time, io, base64, zipfile, urllib.parse
 
 print("=" * 60)
-print("  REPORT -- Bind to Semantic Model (byConnection)")
+print("  POWER BI REPORT DEPLOYMENT (.pbix import)")
 print("=" * 60)
 
 token = notebookutils.credentials.getToken("pbi")
-headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+headers = {"Authorization": f"Bearer {token}"}
+headers_json = {**headers, "Content-Type": "application/json"}
 FABRIC_API = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
+PBI_API = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}"
 
 REPORT_NAME = "HealthcareAnalyticsDashboard"
-REPORT_REPO_DIR = "payer-provider-healthcare/06_AI_and_Graph/HealthcareAnalyticsDashboard.Report"
-
-def _rpt_b64(raw):
-    if raw.startswith(b"\xef\xbb\xbf"):
-        raw = raw[3:]
-    return base64.b64encode(raw).decode()
+SM_NAME = "HealthcareDemoHLS"
+PBIX_FILENAME = "Healthcare_Analytics_Dashboard.pbix"
+PBIX_REPO_PATH = f"payer-provider-healthcare/06_AI_and_Graph/{PBIX_FILENAME}"
 
 # -- Resolve the semantic model id ----------------------------------------
 sm_id = globals().get("HEALTHCARE_SM_ID")
 if not sm_id:
-    r = requests.get(f"{FABRIC_API}/items?type=SemanticModel", headers=headers)
+    r = requests.get(f"{FABRIC_API}/items?type=SemanticModel", headers=headers_json)
     for sm in r.json().get("value", []):
-        if sm["displayName"] == "HealthcareDemoHLS":
+        if sm["displayName"] == SM_NAME:
             sm_id = sm["id"]
             break
 
 if not sm_id:
-    print("  [SKIP] HealthcareDemoHLS not found -- run Cell 4 first.")
+    print(f"  [SKIP] SemanticModel '{SM_NAME}' not found -- run Cell 4 first.")
 else:
-    print(f"  Semantic Model: HealthcareDemoHLS ({sm_id})")
+    print(f"  SemanticModel: {SM_NAME} ({sm_id})")
 
-    # -- Find the existing report (deployed by fabric-cicd) ----------------
-    report_id = None
-    r = requests.get(f"{FABRIC_API}/items?type=Report", headers=headers)
-    for it in r.json().get("value", []):
-        if it["displayName"] == REPORT_NAME:
-            report_id = it["id"]
+    # -- 1. Locate the .pbix (lakehouse extract, else GitHub) -------------
+    pbix_path = None
+    for base in [".lakehouse/default/Files/src", "/lakehouse/default/Files/src"]:
+        if not os.path.isdir(base):
+            continue
+        direct = os.path.join(base, PBIX_REPO_PATH)
+        if os.path.isfile(direct):
+            pbix_path = direct
+            break
+        for sub in os.listdir(base):
+            nested = os.path.join(base, sub, PBIX_REPO_PATH)
+            if os.path.isfile(nested):
+                pbix_path = nested
+                break
+        if pbix_path:
             break
 
-    if not report_id:
-        print(f"  [SKIP] Report {REPORT_NAME} not found -- fabric-cicd should deploy it.")
+    pbix_bytes = None
+    if pbix_path:
+        print(f"  PBIX source: {pbix_path}")
+        with open(pbix_path, "rb") as f:
+            pbix_bytes = f.read()
     else:
-        print(f"  Report: {REPORT_NAME} ({report_id})")
+        print("  PBIX not found on lakehouse. Downloading from GitHub...")
+        _gh_owner = globals().get("GITHUB_OWNER", "rasgiza")
+        _gh_repo = globals().get("GITHUB_REPO", "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart")
+        _gh_branch = globals().get("GITHUB_BRANCH", "main")
+        raw_url = f"https://raw.githubusercontent.com/{_gh_owner}/{_gh_repo}/{_gh_branch}/{PBIX_REPO_PATH}"
+        try:
+            dl = requests.get(raw_url)
+            dl.raise_for_status()
+            pbix_bytes = dl.content
+            print(f"  Downloaded {PBIX_FILENAME} from GitHub ({len(pbix_bytes):,} bytes)")
+        except Exception as ex:
+            print(f"  [ERROR] Failed to download .pbix: {ex}")
 
-        # -- Load report body parts (lakehouse extract, else GitHub raw) ---
-        rpt_base = None
-        for base_prefix in [".lakehouse/default/Files/src", "/lakehouse/default/Files/src"]:
-            if not os.path.isdir(base_prefix):
-                continue
-            direct = os.path.join(base_prefix, REPORT_REPO_DIR)
-            if os.path.isdir(direct):
-                rpt_base = direct
-                break
-            for sub in os.listdir(base_prefix):
-                nested = os.path.join(base_prefix, sub, REPORT_REPO_DIR)
-                if os.path.isdir(nested):
-                    rpt_base = nested
-                    break
-            if rpt_base:
-                break
+    if not pbix_bytes:
+        print(f"  [SKIP] {PBIX_FILENAME} not found -- cannot deploy report.")
+    else:
+        print(f"  PBIX size: {len(pbix_bytes):,} bytes")
 
-        parts = []
-        if rpt_base:
-            print(f"  Report definition dir: {rpt_base}")
-            def_dir = os.path.join(rpt_base, "definition")
-            for root, _dirs, files in os.walk(def_dir):
-                for fname in sorted(files):
-                    fpath = os.path.join(root, fname)
-                    rel = "definition/" + os.path.relpath(fpath, def_dir).replace("\\", "/")
-                    with open(fpath, "rb") as f:
-                        parts.append({"path": rel, "payload": _rpt_b64(f.read()),
-                                      "payloadType": "InlineBase64"})
-        else:
-            print("  Lakehouse extract not found. Downloading report from GitHub...")
-            _gh_owner = globals().get("GITHUB_OWNER", "rasgiza")
-            _gh_repo = globals().get("GITHUB_REPO", "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart")
-            _gh_branch = globals().get("GITHUB_BRANCH", "main")
-            _tree_url = f"https://api.github.com/repos/{_gh_owner}/{_gh_repo}/git/trees/{_gh_branch}?recursive=1"
-            _tree_r = requests.get(_tree_url, headers={"Accept": "application/vnd.github.v3+json"})
-            _tree_r.raise_for_status()
-            _prefix = REPORT_REPO_DIR + "/definition/"
-            for entry in _tree_r.json()["tree"]:
-                p = entry["path"]
-                if entry["type"] != "blob" or not p.startswith(_prefix):
-                    continue
-                rel = "definition/" + p[len(_prefix):]
-                raw_url = f"https://raw.githubusercontent.com/{_gh_owner}/{_gh_repo}/{_gh_branch}/{p}"
-                dr = requests.get(raw_url)
-                dr.raise_for_status()
-                parts.append({"path": rel, "payload": _rpt_b64(dr.content),
-                              "payloadType": "InlineBase64"})
-
-        # -- Generate definition.pbir with byConnection to the real SM id ---
-        pbir = {
-            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definitionProperties/2.0.0/schema.json",
-            "version": "4.0",
-            "datasetReference": {"byConnection": {"connectionString": f"semanticmodelid={sm_id}"}},
-        }
-        parts = [p for p in parts if p["path"] != "definition.pbir"]
-        parts.insert(0, {"path": "definition.pbir",
-                         "payload": base64.b64encode(_json.dumps(pbir, indent=2).encode()).decode(),
-                         "payloadType": "InlineBase64"})
-
-        print(f"  Loaded {len(parts)} report parts (definition.pbir -> byConnection semanticmodelid={sm_id})")
-
-        if len(parts) < 2:
-            print("  [FAIL] No report body parts loaded -- skipping rebind.")
-        else:
-            # -- updateDefinition on the existing report (in place) --------
-            token = notebookutils.credentials.getToken("pbi")
-            headers["Authorization"] = f"Bearer {token}"
-            ur = requests.post(
-                f"{FABRIC_API}/reports/{report_id}/updateDefinition",
-                headers=headers,
-                json={"definition": {"parts": parts}},
+        # -- 2. Patch the embedded Connections part for THIS workspace ----
+        try:
+            ws_resp = requests.get(FABRIC_API, headers=headers_json)
+            ws_name = ws_resp.json().get("displayName", "") if ws_resp.status_code == 200 else ""
+            ws_name_encoded = urllib.parse.quote(ws_name) if ws_name else workspace_id
+            new_conn_str = (
+                f"Data Source=powerbi://api.powerbi.com/v1.0/myorg/{ws_name_encoded};"
+                f"Initial Catalog={SM_NAME};Integrated Security=ClaimsToken"
             )
-            print(f"  UpdateDefinition HTTP {ur.status_code}")
-            if ur.status_code == 202:
-                loc = ur.headers.get("Location", "")
-                retry = int(ur.headers.get("Retry-After", 5))
-                elapsed = 0
-                while elapsed < 180:
-                    time.sleep(retry)
-                    elapsed += retry
-                    pr = requests.get(loc, headers=headers)
-                    if pr.status_code != 200:
-                        continue
-                    st = pr.json().get("status", "")
-                    if st == "Succeeded":
-                        print(f"  Report bound byConnection -> {sm_id}")
-                        break
-                    if st in ("Failed", "Cancelled"):
-                        print(f"  [WARN] UpdateDefinition {st}: {pr.text[:300]}")
-                        break
-            elif ur.status_code in (200, 201):
-                print(f"  Report bound byConnection -> {sm_id}")
+            new_connections = {
+                "Version": 6,
+                "Connections": [{
+                    "Name": "EntityDataSource",
+                    "ConnectionString": new_conn_str,
+                    "ConnectionType": "pbiServiceXmlaStyleLive",
+                    "PbiModelVirtualServerName": "sobe_wowvirtualserver",
+                    "PbiModelDatabaseName": sm_id,
+                }],
+                "RemoteArtifacts": [{"DatasetId": sm_id}],
+                "OriginalWorkspaceObjectId": workspace_id,
+            }
+            conn_json = _json.dumps(new_connections, separators=(",", ":"))
+            old_zip = zipfile.ZipFile(io.BytesIO(pbix_bytes), "r")
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as new_zip:
+                for item in old_zip.infolist():
+                    if item.filename == "Connections":
+                        new_zip.writestr(item, conn_json.encode("utf-8"))
+                    else:
+                        new_zip.writestr(item, old_zip.read(item.filename))
+            old_zip.close()
+            pbix_bytes = buf.getvalue()
+            print(f"  Patched PBIX connections for workspace {workspace_id[:8]}...")
+        except Exception as ex:
+            print(f"  [WARN] Could not patch PBIX connections: {ex}")
+            print("  Proceeding with original PBIX (may fail in other workspaces).")
+
+        # -- 3. Delete the fabric-cicd PBIR report of the same name --------
+        resp = requests.get(f"{FABRIC_API}/items?type=Report", headers=headers_json)
+        for item in resp.json().get("value", []):
+            if item["displayName"] == REPORT_NAME:
+                requests.delete(f"{FABRIC_API}/items/{item['id']}", headers=headers_json)
+                print(f"  Deleted existing report: {item['id']}")
+                time.sleep(5)
+                break
+
+        # -- 4. Import the patched .pbix via the Power BI Import API -------
+        print(f"\n  Importing {PBIX_FILENAME}...")
+        token = notebookutils.credentials.getToken("pbi")
+        headers["Authorization"] = f"Bearer {token}"
+        import_url = f"{PBI_API}/imports?datasetDisplayName={REPORT_NAME}&nameConflict=CreateOrOverwrite"
+        files = {"file": (PBIX_FILENAME, io.BytesIO(pbix_bytes), "application/octet-stream")}
+        resp = requests.post(import_url, headers=headers, files=files)
+
+        rpt_id = None
+        if resp.status_code in (200, 201, 202):
+            import_id = resp.json().get("id", "")
+            print(f"  Import accepted (ID: {import_id})")
+            for attempt in range(60):
+                time.sleep(3)
+                r = requests.get(f"{PBI_API}/imports/{import_id}", headers=headers)
+                if r.status_code != 200:
+                    continue
+                ibody = r.json()
+                status = ibody.get("importState", "")
+                if status == "Succeeded":
+                    reports = ibody.get("reports", [])
+                    if reports:
+                        rpt_id = reports[0].get("id")
+                        print(f"\n  Report imported: {reports[0].get('name', REPORT_NAME)} ({rpt_id})")
+                    else:
+                        print("\n  Import succeeded but no report found in result.")
+                    break
+                if status == "Failed":
+                    print(f"\n  Import FAILED: {_json.dumps(ibody)[:500]}")
+                    break
+                if attempt % 5 == 0:
+                    print(f"    ... {status}")
             else:
-                print(f"  [FAIL] UpdateDefinition HTTP {ur.status_code}: {ur.text[:400]}")
+                print("  Import timed out after 180s. Check the workspace.")
+
+            # -- 5. Rebind the imported report to the Semantic Model ------
+            if rpt_id:
+                rebind = requests.post(
+                    f"{PBI_API}/reports/{rpt_id}/Rebind",
+                    headers=headers_json | {"Authorization": headers["Authorization"]},
+                    json={"datasetId": sm_id},
+                )
+                if rebind.status_code == 200:
+                    print(f"  Rebind successful -> {sm_id}")
+                else:
+                    print(f"  Rebind HTTP {rebind.status_code}: {rebind.text[:200]}")
+                    print("  (Report may already be bound to the correct SM.)")
+
+                # Ensure the display name is exactly REPORT_NAME
+                requests.patch(
+                    f"{FABRIC_API}/items/{rpt_id}",
+                    headers=headers_json,
+                    json={"displayName": REPORT_NAME},
+                )
+
+                time.sleep(3)
+                token = notebookutils.credentials.getToken("pbi")
+                headers["Authorization"] = f"Bearer {token}"
+                pg = requests.get(f"{PBI_API}/reports/{rpt_id}/pages", headers=headers)
+                if pg.status_code == 200:
+                    pages = pg.json().get("value", [])
+                    print(f"\n  Verification: {len(pages)} pages")
+                    for p in pages:
+                        print(f"    - {p.get('displayName')} (order={p.get('order')})")
+                print(f"\n  Report URL: https://app.fabric.microsoft.com/groups/{workspace_id}/reports/{rpt_id}")
+        else:
+            print(f"  [ERROR] Import HTTP {resp.status_code}: {resp.text[:600]}")
 
 print("=" * 60)
 
