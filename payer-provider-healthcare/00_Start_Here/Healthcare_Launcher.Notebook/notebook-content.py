@@ -647,14 +647,69 @@ else:
         _gh_owner = globals().get("GITHUB_OWNER", "rasgiza")
         _gh_repo = globals().get("GITHUB_REPO", "Fabric-Payer-Provider-HealthCare-Demo-Jumpstart")
         _gh_branch = globals().get("GITHUB_BRANCH", "main")
+        _gh_token = globals().get("GITHUB_TOKEN", "") or ""
+        _gh_hdr = {"Authorization": f"token {_gh_token}"} if _gh_token else {}
+
+        def _get_with_backoff(url, headers=None, attempts=6):
+            # Anonymous raw.githubusercontent.com / api.github.com throttle
+            # aggressively (HTTP 429). Retry with exponential backoff, honoring
+            # the Retry-After header when present.
+            wait = 3
+            last = None
+            for i in range(attempts):
+                try:
+                    r = requests.get(url, headers=headers or {}, timeout=60)
+                except Exception as ex:
+                    last = ex
+                    time.sleep(wait)
+                    wait = min(wait * 2, 60)
+                    continue
+                if r.status_code == 200:
+                    return r
+                if r.status_code in (429, 403, 502, 503):
+                    ra = r.headers.get("Retry-After")
+                    delay = int(ra) if (ra and ra.isdigit()) else wait
+                    print(f"    HTTP {r.status_code} (attempt {i + 1}/{attempts}); waiting {delay}s...")
+                    time.sleep(delay)
+                    wait = min(wait * 2, 60)
+                    last = r
+                    continue
+                r.raise_for_status()
+                return r
+            if isinstance(last, Exception):
+                raise last
+            return last
+
+        # Strategy 1: raw.githubusercontent.com with backoff
         raw_url = f"https://raw.githubusercontent.com/{_gh_owner}/{_gh_repo}/{_gh_branch}/{PBIX_REPO_PATH}"
         try:
-            dl = requests.get(raw_url)
-            dl.raise_for_status()
-            pbix_bytes = dl.content
-            print(f"  Downloaded {PBIX_FILENAME} from GitHub ({len(pbix_bytes):,} bytes)")
+            dl = _get_with_backoff(raw_url, headers=_gh_hdr)
+            if dl is not None and dl.status_code == 200:
+                pbix_bytes = dl.content
+                print(f"  Downloaded {PBIX_FILENAME} from raw.githubusercontent ({len(pbix_bytes):,} bytes)")
         except Exception as ex:
-            print(f"  [ERROR] Failed to download .pbix: {ex}")
+            print(f"  [WARN] raw.githubusercontent download failed: {ex}")
+
+        # Strategy 2: GitHub Contents API (different host + base64 payload)
+        if not pbix_bytes:
+            print("  Falling back to the GitHub Contents API...")
+            api_url = (f"https://api.github.com/repos/{_gh_owner}/{_gh_repo}/contents/"
+                       f"{PBIX_REPO_PATH}?ref={_gh_branch}")
+            api_hdr = {"Accept": "application/vnd.github.v3+json", **_gh_hdr}
+            try:
+                ar = _get_with_backoff(api_url, headers=api_hdr)
+                if ar is not None and ar.status_code == 200:
+                    body = ar.json()
+                    if body.get("encoding") == "base64" and body.get("content"):
+                        pbix_bytes = base64.b64decode(body["content"])
+                    elif body.get("download_url"):
+                        dr = _get_with_backoff(body["download_url"], headers=_gh_hdr)
+                        if dr is not None and dr.status_code == 200:
+                            pbix_bytes = dr.content
+                    if pbix_bytes:
+                        print(f"  Downloaded {PBIX_FILENAME} via Contents API ({len(pbix_bytes):,} bytes)")
+            except Exception as ex:
+                print(f"  [ERROR] Contents API download failed: {ex}")
 
     if not pbix_bytes:
         print(f"  [SKIP] {PBIX_FILENAME} not found -- cannot deploy report.")
