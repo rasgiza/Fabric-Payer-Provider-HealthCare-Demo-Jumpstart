@@ -865,6 +865,14 @@ if DEPLOY_STREAMING:
     print("  REAL-TIME INTELLIGENCE DEPLOYMENT")
     print("=" * 60)
 
+    # -- Self-heal core globals (survive kernel restart / out-of-order run) --
+    # workspace_id (and DEPLOY_STREAMING) are set in the CONFIG cell. If this
+    # cell is run standalone after a kernel restart, re-resolve them here so we
+    # don't fail with NameError: name 'workspace_id' is not defined.
+    if "workspace_id" not in dir() or not workspace_id:
+        workspace_id = spark.conf.get("trident.workspace.id")
+        print(f"  (re-resolved workspace_id: {workspace_id})")
+
     # -- Attach lh_gold_curated to RTI notebooks -------------------------
     # Notebooks run via notebookutils.notebook.run() do not inherit the
     # caller's lakehouse context.  The child notebook MUST either have a matching default
