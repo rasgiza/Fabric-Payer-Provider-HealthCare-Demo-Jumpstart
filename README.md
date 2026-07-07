@@ -57,6 +57,7 @@ fabric_jumpstart.install("payer-provider-healthcare", update_existing=True)
 4. [Architecture](#architecture)
 5. [Deployment Flow — What "Run All" Does](#deployment-flow--what-run-all-does)
 6. [After Deployment](#after-deployment)
+   - [What to Expect (read this first)](#what-to-expect-read-this-first)
    - [Explore the Data](#explore-the-data)
    - [Power BI Dashboard](#power-bi-dashboard)
 7. [AI & Agents](#ai--agents)
@@ -355,14 +356,27 @@ The launcher notebook (`Healthcare_Launcher.Notebook`) is the post-deployment or
 | **CELL 3** | Trigger `PL_Healthcare_Master` with `load_mode=full` — Bronze → Silver → Gold ETL (~8-15 min) |
 | **CELL 4** | Create & refresh `HealthcareDemoHLS` semantic model (Direct Lake, TMDL; patches lakehouse IDs). The `HealthcareAnalyticsDashboard` report binds to it by name. |
 | **CELL 5** ⚡ | Deploy RTI streaming topology (Eventhouse + KQL DB + Eventstream Custom Endpoint → KQL / Lakehouse / Activator) and the RTI Real-Time Dashboard |
-| **CELL 6** ⚡ | Run RTI pipeline: auto-fetch connection string → Setup Eventhouse → Event Simulator → verify → scoring notebooks (Fraud, Care Gap, HighCost) |
+| **CELL 6** ⚡ | Run RTI pipeline **once** (initial load): auto-fetch connection string → Setup Eventhouse → Event Simulator → verify → scoring notebooks (Fraud, Care Gap, HighCost) |
 | **CELL 7** | Deploy ontology (`Healthcare_Demo_Ontology_HLS`) + auto-provision the Graph Model |
+| **CELL 9** | Organize the runtime-created items (RTI Dashboard, Eventstream, Report, Ontology/Graph) into their workspace subfolders so nothing is left loose at the workspace root |
+| **Summary (markdown)** | Prints what was built and the exact next steps (open the report, open the RTI Dashboard, run `PL_Healthcare_RTI` for live data) |
 
 > ⚡ = Only runs when `DEPLOY_STREAMING = True`
 >
 > **Why does the ontology/graph step run last?** Its graph-build is the longest-running operation; placing it after RTI ensures a long graph build (or a session timeout during it) never blocks the Real-Time Intelligence items.
 
 ## After Deployment
+
+### What to Expect (read this first)
+
+**`Run All` does a complete, one-time build of the solution.** When it finishes you have a fully working demo — but a few things behave exactly as designed and are worth knowing before you present:
+
+- **Everything lands in one place.** All items are grouped under the `payer-provider-healthcare` workspace folders (`00_Start_Here`, `01_Data_Generation`, … `06_AI_and_Graph`). Items the launcher builds at runtime (RTI Dashboard, Eventstream, the Power BI report, and the ontology/graph) are swept into the right subfolder by the final cell, so nothing is left loose at the workspace root.
+- **The Power BI report is live-connected (Direct Lake).** `HealthcareAnalyticsDashboard` starts rendering as soon as the semantic-model refresh at the end of `Run All` completes. Its **Year slicer shows only the years that actually contain data** (the calendar dimension is sized to the generated data window — no empty years, no blank).
+- **The RTI Dashboard is fed by a one-time initial load.** `Run All` streams one batch of synthetic events through the Eventstream and scores them once. That fills the dashboard tiles (fraud alerts, dollars at risk, hotspot map, throughput) **for that batch**. Because the simulator back-dates events, some "last-5-minutes" live tiles will settle back toward 0 shortly after the run — **this is expected for a one-shot load.**
+- **To show data continuously streaming, run the streaming pipeline.** Open **`PL_Healthcare_RTI`** (in the `04_Orchestration` folder) → **Run**. Each run pushes a fresh batch of events end-to-end and re-scores them, so the RTI Dashboard tiles light up live. For a hands-off live demo, **schedule `PL_Healthcare_RTI` every 5–10 minutes** for the duration of your session — see [How Streaming Works](#how-streaming-works). It is independent of the daily batch ETL (`PL_Healthcare_Master`).
+
+> **TL;DR next steps:** (1) open `HealthcareAnalyticsDashboard` for batch analytics, (2) open `Healthcare RTI Dashboard` for the real-time view, (3) run/schedule `PL_Healthcare_RTI` when you want to see data actively streaming, (4) chat with `HealthcareHLSAgent`.
 
 ### Explore the Data
 - Open **lh_gold_curated** → Tables → you'll see star schema tables (`fact_encounter`, `dim_patient`, etc.)
@@ -595,6 +609,9 @@ Healthcare_RTI_Eventstream (Custom Endpoint)
 2. **Cell 6** auto-fetches the Custom Endpoint connection string via the Fabric Eventstream REST API (`GET /eventstreams/{id}/sources/{sourceId}/connection`) — no portal copy/paste — then runs Setup → Simulator → verification → all 3 scoring notebooks.
 3. Re-run any scoring notebook directly anytime to reprocess the live KQL data.
 
+> [!IMPORTANT]
+> **`Run All` streams one batch (initial load) — it does not keep streaming on its own.** That single batch is enough to populate every RTI Dashboard tile once, but the "live" tiles (throughput, last-few-minutes counts) will settle back toward 0 afterward. **To see data continuously flowing, run the `PL_Healthcare_RTI` pipeline** (in `04_Orchestration`): each run pushes and scores a fresh batch. For a hands-off live demo, **schedule `PL_Healthcare_RTI` to run every 5–10 minutes** for the length of your session. It is independent of the daily batch pipeline `PL_Healthcare_Master`.
+
 > **No portal step is required for the core scenario.** Enabling OneLake Availability on `Healthcare_RTI_DB` is **optional** (only if you want to read the KQL tables as Delta from Spark) — see **[RTI_STREAMING_GUIDE.md](RTI_STREAMING_GUIDE.md)**.
 >
 > **Fallback:** if the connection-string auto-fetch fails (e.g. restricted token), open **Healthcare_RTI_Eventstream** → **HealthcareCustomEndpoint** in the portal, copy the **Connection String**, and paste it into `ES_CONNECTION_STRING` in Cell 6.
@@ -630,7 +647,7 @@ Data Activator (Reflex) is the **production-grade alerting layer** for this solu
 |---------|-------|
 | **Table** | `fraud_scores` |
 | **Monitor** | `fraud_score` |
-| **Condition** | `fraud_score >= 50` |
+| **Condition** | `fraud_score >= 0.5` &nbsp;*(scores are 0–1; 0.5 = the CRITICAL tier)* |
 | **Action 1** | **Email** → notify SIU team |
 | **Action 2** | **Teams** → post to `#fraud-investigations` channel (optional) |
 | **Card fields** | claim_id, patient_id, provider_id, fraud_score, fraud_flags, risk_tier |

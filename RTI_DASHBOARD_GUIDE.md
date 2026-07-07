@@ -172,7 +172,7 @@ fraud_scores
 | where score_timestamp between (_startTime .. _endTime)
 | where isempty(_facility) or facility_id in (adt_events | where facility_name in~ (_facility) | distinct facility_id)
 | where isempty(_riskTier) or risk_tier in~ (_riskTier)
-| where fraud_score >= 0.7
+| where fraud_score >= 0.5
 | count
 ```
 
@@ -208,7 +208,7 @@ fraud_scores
 | where score_timestamp between (_startTime .. _endTime)
 | where isempty(_facility) or facility_id in (adt_events | where facility_name in~ (_facility) | distinct facility_id)
 | where isempty(_riskTier) or risk_tier in~ (_riskTier)
-| where fraud_score >= 0.7
+| where fraud_score >= 0.5
 | summarize Alerts=count() by bin(score_timestamp, 1h)
 | order by score_timestamp asc
 ```
@@ -220,7 +220,7 @@ fraud_scores
 | where score_timestamp between (_startTime .. _endTime)
 | where isempty(_facility) or facility_id in (adt_events | where facility_name in~ (_facility) | distinct facility_id)
 | where isempty(_riskTier) or risk_tier in~ (_riskTier)
-| where fraud_score >= 0.7
+| where fraud_score >= 0.5
 | mv-expand flag=parse_json(fraud_flags)
 | summarize Count=count() by tostring(flag)
 | top 10 by Count desc
@@ -233,7 +233,7 @@ fraud_scores
 | where score_timestamp between (_startTime .. _endTime)
 | where isempty(_facility) or facility_id in (adt_events | where facility_name in~ (_facility) | distinct facility_id)
 | where isempty(_riskTier) or risk_tier in~ (_riskTier)
-| where fraud_score >= 0.7
+| where fraud_score >= 0.5
 | join kind=leftouter (
     adt_events | summarize arg_max(event_timestamp, facility_name) by facility_id
 ) on facility_id

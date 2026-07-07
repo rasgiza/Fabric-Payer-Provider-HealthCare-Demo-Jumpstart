@@ -64,11 +64,17 @@
 #
 # 1. Edit the **CONFIGURATION** cell below if you want to skip data generation or enable streaming.
 # 2. **Run All**.
-# 3. When complete, open the **HealthcareAnalyticsDashboard** Power BI report, the **Healthcare RTI Dashboard** (real-time KQL), or chat with the **HealthcareHLSAgent** Data Agent.
-# 4. *(Streaming)* Nothing extra is required — **Run All** wires the Eventstream and
-#    runs the Simulator → KQL → Scoring pipeline automatically. Enabling OneLake
-#    availability on **Healthcare_RTI_DB** is optional (only for querying the KQL
-#    tables as Delta from Spark) and can be done any time afterward.
+# 3. When complete, read the **summary at the bottom of this notebook** — it lists
+#    exactly what was built and what to click. In short: open the
+#    **HealthcareAnalyticsDashboard** Power BI report (batch analytics), the
+#    **Healthcare RTI Dashboard** (real-time KQL), or chat with the
+#    **HealthcareHLSAgent** Data Agent.
+# 4. *(Streaming)* **Run All** wires the Eventstream and does a **one-time initial
+#    load** into the Real-Time tables and dashboard — no extra clicks needed. This
+#    fills every RTI tile once, but nothing keeps streaming afterward. For a **live
+#    demo where the dashboard visibly moves**, run the **`PL_Healthcare_RTI`**
+#    pipeline (Orchestration folder) on-demand or on a 5–10 min schedule. See the
+#    end-of-notebook summary for step-by-step instructions.
 
 # CELL ********************
 
@@ -2192,6 +2198,15 @@ else:
         print("    KQL update policies → claims_events, adt_events, rx_events")
         print("    Scoring notebooks → fraud_scores, care_gap_alerts, highcost_alerts")
         print()
+        print("  NEXT STEPS:")
+        print("    • Open 'Healthcare RTI Dashboard' to see the scored results.")
+        print("    • This was a ONE-TIME initial load — enough to fill every tile")
+        print("      once. Some 'live' tiles (Throughput, alerts) settle toward 0")
+        print("      afterward because nothing keeps streaming. That is expected.")
+        print("    • For a LIVE demo (data in motion): run the 'PL_Healthcare_RTI'")
+        print("      pipeline (Orchestration folder). Schedule it every 5–10 min")
+        print("      for ~30 min and watch the dashboard auto-refresh.")
+        print()
         print("  NOTE: KQL Eventhouse is the real-time query surface.")
         print("  For unified lakehouse access, enable OneLake Availability")
         print("  on the KQL DB and create shortcuts manually in the portal.")
@@ -2899,3 +2914,188 @@ print("=" * 60)
 # META   "language": "python",
 # META   "language_group": "synapse_pyspark"
 # META }
+
+# CELL ********************
+
+# ============================================================================
+# CELL 9 — Organize runtime-created items into the workspace folders
+# ============================================================================
+# fabric-cicd deploys the git items straight into their functional subfolders
+# (00_Start_Here, 05_Real_Time_Intelligence, ...). But items that this launcher
+# creates at RUNTIME via REST — the RTI Dashboard, the Eventstream, the imported
+# Power BI report, and the ontology / graph model — land at the WORKSPACE ROOT,
+# loose and ungrouped. This cell sweeps those loose items into the matching
+# subfolder so the whole solution stays tidy under one structure.
+#
+# Uses the Fabric Folders + Move Item APIs (move is a Preview API); the whole
+# block is best-effort — if it can't move something it just prints a note.
+# ============================================================================
+
+try:
+    import requests as _rq, time as _t
+
+    _mv_token = notebookutils.credentials.getToken("pbi")
+    _mv_hdrs = {"Authorization": f"Bearer {_mv_token}", "Content-Type": "application/json"}
+    _mv_api = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
+
+    print("=" * 60)
+    print("  ORGANIZING RUNTIME-CREATED ITEMS INTO FOLDERS")
+    print("=" * 60)
+
+    # ── List folders (paginated) → {displayName: id} ───────────────
+    _folders_by_name = {}
+    _f_url = f"{_mv_api}/folders"
+    while _f_url:
+        _fr = _rq.get(_f_url, headers=_mv_hdrs)
+        if _fr.status_code != 200:
+            print(f"  [WARN] Could not list folders: HTTP {_fr.status_code} {_fr.text[:150]}")
+            break
+        _fj = _fr.json()
+        for _f in _fj.get("value", []):
+            _folders_by_name[_f["displayName"]] = _f["id"]
+        _ct = _fj.get("continuationUri")
+        _f_url = _ct if _ct else None
+
+    if not _folders_by_name:
+        print("  [SKIP] No workspace folders found — nothing to organize into.")
+    else:
+        # ── Which subfolder should each loose item land in? ─────────
+        # Matched by item type first, then by a name hint. Anything that
+        # doesn't match falls back to Start Here so it is never left loose.
+        _RTI_FOLDER   = "05_Real_Time_Intelligence"
+        _AI_FOLDER    = "06_AI_and_Graph"
+        _START_FOLDER = "00_Start_Here"
+
+        def _target_folder_for(_item):
+            _typ = _item.get("type", "")
+            _nm  = (_item.get("displayName") or "").lower()
+            if _typ in ("Eventstream", "KQLDashboard", "RealTimeDashboard",
+                        "Eventhouse", "KQLDatabase", "Reflex") or "rti" in _nm:
+                return _RTI_FOLDER
+            if _typ in ("Ontology", "GraphModel", "GraphQuerySet", "DataAgent") \
+                    or "ontology" in _nm or "agent" in _nm:
+                return _AI_FOLDER
+            if _typ in ("Report", "SemanticModel", "Dashboard"):
+                return _START_FOLDER
+            return _START_FOLDER
+
+        # ── List items, move any that are not already in a folder ───
+        _ir = _rq.get(f"{_mv_api}/items", headers=_mv_hdrs)
+        _moved = 0
+        _skipped = 0
+        if _ir.status_code == 200:
+            for _it in _ir.json().get("value", []):
+                # Already foldered (deployed by fabric-cicd) → leave it.
+                if _it.get("folderId"):
+                    continue
+                # SQLEndpoint is a child of a Lakehouse — moves with its parent.
+                if _it.get("type") == "SQLEndpoint":
+                    continue
+                _tgt_name = _target_folder_for(_it)
+                _tgt_id = _folders_by_name.get(_tgt_name)
+                if not _tgt_id:
+                    print(f"  [skip] {_it.get('displayName')} — target folder "
+                          f"'{_tgt_name}' not found")
+                    _skipped += 1
+                    continue
+                _mr = _rq.post(
+                    f"{_mv_api}/items/{_it['id']}/move",
+                    headers=_mv_hdrs, json={"targetFolderId": _tgt_id},
+                )
+                if _mr.status_code in (200, 201):
+                    print(f"  [OK] {_it.get('displayName')} → {_tgt_name}")
+                    _moved += 1
+                elif _mr.status_code == 429:
+                    _t.sleep(int(_mr.headers.get("Retry-After", 10)))
+                    _mr2 = _rq.post(
+                        f"{_mv_api}/items/{_it['id']}/move",
+                        headers=_mv_hdrs, json={"targetFolderId": _tgt_id},
+                    )
+                    if _mr2.status_code in (200, 201):
+                        print(f"  [OK] {_it.get('displayName')} → {_tgt_name}")
+                        _moved += 1
+                    else:
+                        print(f"  [WARN] {_it.get('displayName')}: HTTP "
+                              f"{_mr2.status_code} {_mr2.text[:120]}")
+                else:
+                    print(f"  [WARN] {_it.get('displayName')}: HTTP "
+                          f"{_mr.status_code} {_mr.text[:120]}")
+        else:
+            print(f"  [WARN] Could not list items: HTTP {_ir.status_code}")
+
+        print()
+        print(f"  Organized {_moved} item(s) into folders"
+              + (f", {_skipped} skipped" if _skipped else "") + ".")
+        print("=" * 60)
+
+except Exception as _mv_err:
+    print(f"  [WARN] Folder organization step skipped: {_mv_err}")
+    print("         (Non-fatal — items still work; you can drag them into")
+    print("          folders manually in the workspace if you prefer.)")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# MARKDOWN ********************
+
+# ---
+#
+# # Deployment complete — here is what you just built and what to do next
+#
+# Everything is now live in your workspace, inside the
+# **`payer-provider-healthcare`** folder (functional subfolders: *Start Here,
+# Data Generation, Medallion Pipeline, Lakehouses, Orchestration, Real-Time
+# Intelligence, AI & Graph*). Here is the tour, in the order most people demo it.
+#
+# ## 1. The Power BI report — *"what happened"* (batch analytics)
+#
+# Open **`HealthcareAnalyticsDashboard`**. It is a Direct Lake report on the
+# gold star schema (claims, members, providers, HEDIS care gaps, high-cost
+# members). This is the batch/historical view — the data spans **2023–2026**.
+#
+# ## 2. The Real-Time Dashboard — *"what is happening now"* (streaming)
+#
+# Open **`Healthcare RTI Dashboard`** (a KQL / Real-Time dashboard, auto-refresh
+# every 30s). It reads the Eventhouse tables the scoring notebooks just wrote:
+# fraud scores, care-gap alerts, and high-cost-member alerts, with a live map.
+#
+# > **Why the "alert" tiles need live data:** the numbers (Total Fraud Alerts,
+# > Dollars at Risk, the hotspot map, Throughput Rate) reflect events that are
+# > *currently* streaming. **Run All** above does a **one-time initial load** —
+# > enough to populate every tile once — but nothing keeps streaming afterward,
+# > so a few minutes later some tiles settle back toward zero. That is expected.
+# > To see data **in motion**, run the streaming pipeline (step 4).
+#
+# ## 3. The HLS Data Agent — *"just ask"* (natural language)
+#
+# Open **`HealthcareHLSAgent`** and ask questions in plain English (e.g.
+# *"which providers have the most open diabetes care gaps?"*). It is grounded on
+# the gold star schema and the clinical knowledge documents.
+#
+# ## 4. Run a LIVE Real-Time demo (data in motion) — optional
+#
+# The initial load is a snapshot. For a live demo where the RTI Dashboard
+# visibly moves, re-stream events with the ready-made pipeline:
+#
+# 1. Open **`PL_Healthcare_RTI`** (Orchestration folder).
+# 2. Click **Run**. Each run streams a fresh batch of claims / ADT / Rx events
+#    → Eventstream → Eventhouse, then re-runs the three scoring notebooks.
+# 3. For continuous movement, click **Schedule** and run it every **5–10
+#    minutes for ~30 minutes**. Keep the **Healthcare RTI Dashboard** open — its
+#    30-second auto-refresh will show the alerts, dollars-at-risk, and map
+#    updating as new events arrive.
+#
+# > `PL_Healthcare_RTI` is independent of the daily batch pipeline
+# > (`PL_Healthcare_Master`) — running it re-loads only the real-time tables and
+# > never touches the gold star schema.
+#
+# ## 5. Optional extras
+#
+# - **OneLake availability** on `Healthcare_RTI_DB` — only if you want to query
+#   the KQL tables as Delta from Spark. Not required for any dashboard.
+# - **Graph / ontology** — `Healthcare_Demo_Ontology_HLS` for relationship
+#   exploration across patients, providers, and claims.
