@@ -240,10 +240,25 @@ if not IS_FULL and table_exists(f"{GOLD}.dim_date") and len(spark.table(f"{GOLD}
     print("   Already populated — skipping (incremental mode)")
 else:
     from pyspark.sql.functions import explode, sequence, to_date
+    from datetime import date, timedelta
 
-    df_dates = spark.sql("""
-        SELECT explode(sequence(to_date('2020-01-01'), to_date('2030-12-31'), interval 1 day)) as full_date
+    # ── Calendar range tied to the ACTUAL data window ──────────────────────
+    # The data generator (NB_Generate_Sample_Data) uses a *rolling* window of
+    # roughly `today - 730 days` through `today + 1 day`, and claim/fill/payment
+    # dates can trail a couple months past that. A hardcoded 2020–2030 calendar
+    # made the report's Year slicer list many empty years (blank + years with no
+    # data). We size dim_date to only the calendar years the data actually
+    # touches — wide enough that every fact date_key matches a row (so no
+    # "(Blank)" member appears), but tight enough that the slicer shows only
+    # populated years.
+    _today = date.today()
+    _start_year = (_today - timedelta(days=760)).year   # buffer before earliest data
+    _end_year = (_today + timedelta(days=90)).year      # buffer after latest trailing date
+
+    df_dates = spark.sql(f"""
+        SELECT explode(sequence(to_date('{_start_year}-01-01'), to_date('{_end_year}-12-31'), interval 1 day)) as full_date
     """)
+    print(f"   Calendar range: {_start_year}-01-01 → {_end_year}-12-31 (sized to data window)")
 
     df_dim_date = df_dates.select(
         (year("full_date") * 10000 + month("full_date") * 100 + dayofmonth("full_date")).alias("date_key"),
