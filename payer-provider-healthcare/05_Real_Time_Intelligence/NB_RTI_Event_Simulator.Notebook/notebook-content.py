@@ -144,7 +144,7 @@ del _req, _ws_id, _tok, _hdr, _lh_resp
 
 # CELL ********************
 
-%pip install azure-eventhub azure-core>=1.31.0 --quiet
+%pip install azure-eventhub azure-kusto-data azure-kusto-ingest azure-core>=1.31.0 --quiet
 
 # METADATA ********************
 
@@ -245,8 +245,25 @@ if _eh_resp.status_code == 200:
                 _KUSTO_QUERY_URI = _props.get("queryServiceUri", "")
             break
 
+# ── Direct KQL streaming ingest (guarantee path) ──
+# The Eventstream ProcessedIngestion path routes events through Azure Stream
+# Analytics, which has cold-start latency and cannot be Direct-Ingestion via
+# the REST API. On a fresh install that path can exceed the scoring notebooks'
+# 180s wait window, leaving rti_all_events empty. To make the demo
+# deterministic, we ALSO ingest each batch directly into rti_all_events using
+# Kusto streaming ingestion (streamingingestion policy is enabled in setup).
+_kusto_ingest_client = None
 if _KUSTO_QUERY_URI:
-    print(f"  KQL verify: {_KUSTO_QUERY_URI} (query-only, not for ingestion)")
+    print(f"  KQL: {_KUSTO_QUERY_URI}")
+    try:
+        from azure.kusto.data import KustoConnectionStringBuilder as _IngKCSB
+        from azure.kusto.ingest import KustoStreamingIngestClient as _IngClient
+        _ing_tok = notebookutils.credentials.getToken("kusto")
+        _ing_kcsb = _IngKCSB.with_aad_user_token_authentication(_KUSTO_QUERY_URI, _ing_tok)
+        _kusto_ingest_client = _IngClient(_ing_kcsb)
+        print(f"    → Direct KQL streaming ingest enabled (guarantees rti_all_events data)")
+    except Exception as _ing_err:
+        print(f"    [WARN] Direct KQL ingest unavailable — relying on Eventstream only: {_ing_err}")
 
 if not _es_producer:
     print("="*60)
@@ -314,6 +331,38 @@ def push_to_eventstream(df_pandas, table_name):
         return True
     except Exception as e:
         print(f"  Eventstream ERROR: {table_name} push failed: {e}")
+        return False
+
+def direct_ingest_rti_all_events(df_pandas, table_name):
+    """Guarantee data lands in rti_all_events via direct KQL streaming ingest.
+    Runs alongside the Eventstream path so the demo works even when the
+    Eventstream ProcessedIngestion (ASA) path is slow or cold on first run."""
+    if _kusto_ingest_client is None or df_pandas is None or len(df_pandas) == 0:
+        return False
+    try:
+        import io
+        from azure.kusto.data import DataFormat
+        from azure.kusto.ingest import IngestionProperties
+        # NaN -> None so json.dumps emits valid null (Kusto rejects NaN literals)
+        _df = df_pandas.astype(object).where(pd.notnull(df_pandas), None)
+        _lines = []
+        for _rec in _df.to_dict(orient="records"):
+            _rec["_table"] = table_name
+            for _k, _v in list(_rec.items()):
+                if hasattr(_v, "isoformat"):
+                    _rec[_k] = _v.isoformat()
+            _lines.append(json.dumps(_rec))
+        _payload = ("\n".join(_lines)).encode("utf-8")
+        _props = IngestionProperties(
+            database=_KQL_DB_NAME,
+            table="rti_all_events",
+            data_format=DataFormat.JSON,
+            ingestion_mapping_reference="rti_all_events_mapping",
+        )
+        _kusto_ingest_client.ingest_from_stream(io.BytesIO(_payload), ingestion_properties=_props)
+        return True
+    except Exception as _e:
+        print(f"  KQL direct-ingest ERROR: {table_name} -> rti_all_events: {_e}")
         return False
 
 # METADATA ********************
@@ -548,10 +597,10 @@ print("Event generators ready.")
 # CELL ********************
 
 # ============================================================================
-# Stream Events — Eventstream primary path
+# Stream Events — Eventstream + direct KQL guarantee path
 # ============================================================================
-# Eventstream: EventHub → Eventhouse + Lakehouse + Activator
-# All routing is handled by the Eventstream topology (no direct KQL ingestion)
+# Eventstream: EventHub → Eventhouse + Lakehouse + Activator (showcased arch)
+# Direct KQL streaming ingest → rti_all_events (deterministic guarantee path)
 # ============================================================================
 
 if not _es_producer:
@@ -582,8 +631,16 @@ else:
             push_to_eventstream(adt_pdf, "adt_events")
             push_to_eventstream(rx_pdf, "rx_events")
 
+            # Guarantee rti_all_events data via direct KQL streaming ingest.
+            # This makes the pipeline deterministic even if the Eventstream
+            # ProcessedIngestion (ASA) path is cold/slow on a fresh install.
+            direct_ingest_rti_all_events(claims_pdf, "claims_events")
+            direct_ingest_rti_all_events(adt_pdf, "adt_events")
+            direct_ingest_rti_all_events(rx_pdf, "rx_events")
+
             total = len(claims_pdf) + len(adt_pdf) + len(rx_pdf)
-            print(f"  Batch {batch_num}: {total} events → Eventstream")
+            _paths = "Eventstream + KQL" if _kusto_ingest_client else "Eventstream"
+            print(f"  Batch {batch_num}: {total} events → {_paths}")
 
             if batch_num < max_batches:
                 _stream_time.sleep(STREAM_INTERVAL_SEC)
@@ -602,7 +659,8 @@ else:
             _cnt = _rows[0][0] if _rows else 0
             print(f"  {_tbl}: {_cnt} rows")
 
-    print(f"\nStreaming complete — {batch_num} batches pushed via Eventstream.")
+    _paths = "Eventstream + direct KQL ingest" if _kusto_ingest_client else "Eventstream"
+    print(f"\nStreaming complete — {batch_num} batches pushed via {_paths}.")
 
 # METADATA ********************
 
@@ -624,6 +682,10 @@ if _es_producer:
     _es_producer.close()
 else:
     print("  ✗ Eventstream (no connection string)")
+if _kusto_ingest_client:
+    print("  ✓ Direct KQL streaming ingest → rti_all_events (guarantee path)")
+else:
+    print("  ✗ Direct KQL ingest (unavailable — Eventstream only)")
 print()
 print("Fraud pattern injection rates:")
 for k, v in FRAUD_PATTERNS.items():
