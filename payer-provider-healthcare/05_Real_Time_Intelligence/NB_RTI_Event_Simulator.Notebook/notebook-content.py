@@ -341,6 +341,7 @@ def direct_ingest_rti_all_events(df_pandas, table_name):
         return False
     try:
         import io
+        import time
         from azure.kusto.data import DataFormat
         from azure.kusto.ingest import IngestionProperties
         # NaN -> None so json.dumps emits valid null (Kusto rejects NaN literals)
@@ -359,8 +360,35 @@ def direct_ingest_rti_all_events(df_pandas, table_name):
             data_format=DataFormat.JSON,
             ingestion_mapping_reference="rti_all_events_mapping",
         )
-        _kusto_ingest_client.ingest_from_stream(io.BytesIO(_payload), ingestion_properties=_props)
-        return True
+        # Retry transient streaming-ingest failures. On a freshly-created
+        # Eventhouse the streaming rowstore can still be cold-starting, which
+        # surfaces as HTTP 520 / InternalServiceError / "Failed to initialize
+        # cursor tracker for rowstore" -- Kusto flags these @permanent:false and
+        # explicitly recommends retrying after a backoff period.
+        _last_err = None
+        for _attempt in range(6):
+            try:
+                _kusto_ingest_client.ingest_from_stream(
+                    io.BytesIO(_payload), ingestion_properties=_props)
+                if _attempt > 0:
+                    print(f"  KQL direct-ingest OK: {table_name} -> rti_all_events "
+                          f"(succeeded on retry {_attempt})")
+                return True
+            except Exception as _ie:
+                _last_err = _ie
+                _msg = str(_ie)
+                _transient = (
+                    "520" in _msg or "InternalServiceError" in _msg
+                    or "cursor tracker" in _msg or "internal service error" in _msg.lower()
+                    or '"@permanent": false' in _msg or "temporary error" in _msg.lower()
+                )
+                if not _transient or _attempt == 5:
+                    raise
+                _wait = min(2 ** _attempt * 3, 45)  # 3,6,12,24,45,45s
+                print(f"  KQL direct-ingest retry {_attempt + 1}/5 for {table_name} "
+                      f"(transient rowstore cold-start) -- waiting {_wait}s...")
+                time.sleep(_wait)
+        return False
     except Exception as _e:
         print(f"  KQL direct-ingest ERROR: {table_name} -> rti_all_events: {_e}")
         return False
