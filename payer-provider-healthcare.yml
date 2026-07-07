@@ -22,7 +22,7 @@ scenario_tags:
 type: Demo
 source:
   repo_url: https://github.com/rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart.git
-  repo_ref: v1.0.26
+  repo_ref: v1.0.27
   workspace_path: payer-provider-healthcare/
   # Copy the clinical knowledge documents into the gold lakehouse Files area so
   # the HLS Data Agent can ground on them. Handled by the installer's built-in
@@ -43,7 +43,7 @@ items_in_scope:
 # fabric-cicd from a PBIR folder -- a freshly-published PBIR report on an
 # API-created Direct Lake model hangs in the browser at "Loading your report...",
 # whereas the imported live-connection .pbix opens reliably.
-jumpstart_docs_uri: 'https://github.com/rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart/blob/v1.0.26/README.md'
+jumpstart_docs_uri: 'https://github.com/rasgiza/Fabric-Payer-Provider-HealthCare-Demo-Jumpstart/blob/v1.0.27/README.md'
 entry_point: Healthcare_Launcher.Notebook
 test_suite: ''
 owner_email: kwamesefah@microsoft.com

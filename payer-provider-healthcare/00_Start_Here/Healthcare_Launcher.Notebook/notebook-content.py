@@ -1944,51 +1944,164 @@ else:
     _query_url = f"{_api}/kqlDatabases/{_kql_db['id']}/queryRun" if _kql_db else None
 
     # ── Step 0: Run Setup Eventhouse (create KQL tables + update policies) ──
+    # NOTE: We run NB_RTI_Setup_Eventhouse INLINE (in this same Spark session)
+    # instead of via notebookutils.notebook.run(). On Trial / small (F2-F4)
+    # capacities, notebook.run() spawns a SEPARATE Spark session that can sit at
+    # "Queued 0%" indefinitely waiting for a free concurrency slot (the parent
+    # launcher already holds one). NB_RTI_Setup_Eventhouse is pure Python
+    # (requests + Kusto SDK, no Spark), so executing its code inline needs no
+    # second slot and never queues. notebook.run() remains a fallback.
     print("=" * 60)
-    print("  STEP 0: RUNNING NB_RTI_Setup_Eventhouse")
+    print("  STEP 0: RUNNING NB_RTI_Setup_Eventhouse (inline — same session)")
     print("=" * 60)
     print("  Creates rti_all_events, typed tables, update policies, and JSON mappings")
     print()
 
+    def _run_notebook_inline(_nb_name, _params=None):
+        """Execute a pure-Python child notebook in THIS Spark session.
+
+        Fetches the child's ipynb definition via the Fabric REST API, strips
+        magic (%/!) lines, and exec()s the code in an isolated namespace seeded
+        with the current session globals (so notebookutils/spark/requests are
+        available). Avoids the separate-session 'Queued 0%' stall that
+        notebookutils.notebook.run() hits on Trial/small capacities.
+
+        _params: optional dict of parameter overrides. Seeded into the exec
+        namespace before running, so a child parameter cell that uses the
+        self-referential pattern (VAR = VAR if "VAR" in dir() and VAR else ...)
+        keeps the injected value.
+        """
+        import base64 as _b64
+        # 1. Resolve the notebook id by displayName
+        _lr = requests.get(f"{_api}/items?type=Notebook", headers=_hdrs)
+        _lr.raise_for_status()
+        _nid = next((i["id"] for i in _lr.json().get("value", [])
+                     if i["displayName"] == _nb_name), None)
+        if not _nid:
+            raise RuntimeError(f"{_nb_name} not found in workspace")
+        # 2. Fetch its definition (ipynb), handling the async LRO
+        _dr = requests.post(f"{_api}/notebooks/{_nid}/getDefinition?format=ipynb",
+                            headers=_hdrs)
+        _body = None
+        if _dr.status_code == 200:
+            _body = _dr.json()
+        elif _dr.status_code == 202:
+            _loc = _dr.headers.get("Location", "")
+            _wait = int(_dr.headers.get("Retry-After", "2"))
+            for _ in range(60):
+                time.sleep(_wait)
+                _pr = requests.get(_loc, headers=_hdrs)
+                if _pr.status_code == 202:
+                    continue
+                if _pr.status_code != 200:
+                    break
+                _st = _pr.json().get("status", "")
+                if _st == "Succeeded":
+                    _rr = requests.get(f"{_loc}/result", headers=_hdrs)
+                    if _rr.status_code == 200:
+                        _body = _rr.json()
+                    break
+                if _st in ("Failed", "Cancelled"):
+                    break
+        if not _body:
+            raise RuntimeError(f"Could not fetch definition for {_nb_name}")
+        _parts = (_body.get("definition", {}).get("parts", [])
+                  or _body.get("parts", []))
+        # 3. Extract code cells (skip magic lines), join into one script
+        _code = []
+        for _part in _parts:
+            _p = _part.get("path", "")
+            if _p.endswith(".ipynb") or "content" in _p.lower():
+                _nbj = json.loads(_b64.b64decode(_part["payload"]).decode("utf-8"))
+                for _cell in _nbj.get("cells", []):
+                    if _cell.get("cell_type") != "code":
+                        continue
+                    for _ln in _cell.get("source", []):
+                        _st = _ln.lstrip()
+                        # Convert %pip/%conda install magics to subprocess so
+                        # dependencies still install when running inline.
+                        if _st.startswith(("%pip install", "%conda install")):
+                            _pkgs = _st.split("install", 1)[1].strip()
+                            _ind = _ln[:len(_ln) - len(_st)]
+                            _code.append(f"{_ind}import subprocess as _sp, sys as _sys")
+                            _code.append(
+                                f'{_ind}_sp.check_call([_sys.executable, "-m", '
+                                f'"pip", "install", "-q"] + {_pkgs!r}.split())')
+                            continue
+                        if _st.startswith(("%", "!")):
+                            continue
+                        _code.append(_ln.rstrip("\n"))
+                    _code.append("")
+                break
+        if not _code:
+            raise RuntimeError(f"No code cells found in {_nb_name}")
+        # 4. Run it inline in an isolated namespace seeded with session globals
+        _ns = dict(globals())
+        _ns["__name__"] = "__inline__"
+        if _params:
+            _ns.update(_params)
+        exec(compile("\n".join(_code), f"<{_nb_name}>", "exec"), _ns)
+
     _setup_ok = False
     try:
-        notebookutils.notebook.run("NB_RTI_Setup_Eventhouse", 600, {"useRootDefaultLakehouse": True})
+        _run_notebook_inline("NB_RTI_Setup_Eventhouse")
         _setup_ok = True
         print("  [OK] Setup Eventhouse completed — KQL schema ready")
     except Exception as _setup_err:
-        if "mssparkutilsrun-result+json" in str(_setup_err) or "NoSuchElementException" in str(_setup_err):
+        print(f"  [WARN] Inline setup failed: {_setup_err}")
+        print("         Falling back to notebookutils.notebook.run()...")
+        try:
+            notebookutils.notebook.run("NB_RTI_Setup_Eventhouse", 600, {"useRootDefaultLakehouse": True})
             _setup_ok = True
-            print("  [OK] Setup Eventhouse completed (ignoring Fabric result-parse bug)")
-        else:
-            print(f"  [WARN] Setup Eventhouse: {_setup_err}")
-            print("         Tables may already exist. Continuing...")
-            _setup_ok = True  # non-fatal — tables might already exist
+            print("  [OK] Setup Eventhouse completed — KQL schema ready")
+        except Exception as _setup_err2:
+            if "mssparkutilsrun-result+json" in str(_setup_err2) or "NoSuchElementException" in str(_setup_err2):
+                _setup_ok = True
+                print("  [OK] Setup Eventhouse completed (ignoring Fabric result-parse bug)")
+            else:
+                print(f"  [WARN] Setup Eventhouse: {_setup_err2}")
+                print("         Tables may already exist. Continuing...")
+                _setup_ok = True  # non-fatal — tables might already exist
 
     print()
 
-    # ── Step 1: Run Event Simulator ────────────────────────────────
+    # ── Step 1: Run Event Simulator (inline — same session) ────────
+    # Also run inline to avoid the notebook.run() 'Queued 0%' stall on Trial/
+    # small capacities. The simulator is pure Python; its parameter cell uses
+    # the self-referential pattern (VAR = VAR if "VAR" in dir() ...), so the
+    # seeded ES_CONNECTION_STRING / STREAM_BATCHES overrides are honored.
     print("=" * 60)
-    print("  STEP 1: RUNNING EVENT SIMULATOR")
+    print("  STEP 1: RUNNING EVENT SIMULATOR (inline — same session)")
     print("=" * 60)
     print("  Events → Eventstream → Eventhouse (KQL update policies route to typed tables)")
     print()
 
     _sim_ok = False
     try:
-        notebookutils.notebook.run("NB_RTI_Event_Simulator", 1200, {
+        _run_notebook_inline("NB_RTI_Event_Simulator", {
             "ES_CONNECTION_STRING": ES_CONNECTION_STRING,
             "STREAM_BATCHES": 10,
-            "useRootDefaultLakehouse": True,
         })
         _sim_ok = True
         print("  [OK] Event Simulator completed")
     except Exception as _sim_err:
-        if "mssparkutilsrun-result+json" in str(_sim_err) or "NoSuchElementException" in str(_sim_err):
+        print(f"  [WARN] Inline simulator failed: {_sim_err}")
+        print("         Falling back to notebookutils.notebook.run()...")
+        try:
+            notebookutils.notebook.run("NB_RTI_Event_Simulator", 1200, {
+                "ES_CONNECTION_STRING": ES_CONNECTION_STRING,
+                "STREAM_BATCHES": 10,
+                "useRootDefaultLakehouse": True,
+            })
             _sim_ok = True
-            print("  [OK] Event Simulator completed (ignoring Fabric result-parse bug)")
-        else:
-            print(f"  [FAIL] Event Simulator: {_sim_err}")
-            print("  Check the notebook run history for details.")
+            print("  [OK] Event Simulator completed")
+        except Exception as _sim_err2:
+            if "mssparkutilsrun-result+json" in str(_sim_err2) or "NoSuchElementException" in str(_sim_err2):
+                _sim_ok = True
+                print("  [OK] Event Simulator completed (ignoring Fabric result-parse bug)")
+            else:
+                print(f"  [FAIL] Event Simulator: {_sim_err2}")
+                print("  Check the notebook run history for details.")
 
     if _sim_ok and _kql_db:
         # ── Step 2: Verify data landed in KQL ──────────────────────
@@ -2045,18 +2158,25 @@ else:
         ]
         _scoring_ok = 0
         for _nb in _scoring_nbs:
-            print(f"  Running {_nb}...")
+            print(f"  Running {_nb} (inline — same session)...")
             try:
-                notebookutils.notebook.run(_nb, 1200, {"useRootDefaultLakehouse": True})
+                _run_notebook_inline(_nb)
                 print(f"  [OK] {_nb}")
                 _scoring_ok += 1
             except Exception as _sc_err:
-                if "mssparkutilsrun-result+json" in str(_sc_err) or "NoSuchElementException" in str(_sc_err):
-                    print(f"  [OK] {_nb} (ignoring Fabric result-parse bug)")
+                print(f"  [WARN] Inline {_nb} failed: {_sc_err}")
+                print(f"         Falling back to notebookutils.notebook.run()...")
+                try:
+                    notebookutils.notebook.run(_nb, 1200, {"useRootDefaultLakehouse": True})
+                    print(f"  [OK] {_nb}")
                     _scoring_ok += 1
-                else:
-                    print(f"  [WARN] {_nb}: {_sc_err}")
-                    print(f"         Run manually from the workspace if needed.")
+                except Exception as _sc_err2:
+                    if "mssparkutilsrun-result+json" in str(_sc_err2) or "NoSuchElementException" in str(_sc_err2):
+                        print(f"  [OK] {_nb} (ignoring Fabric result-parse bug)")
+                        _scoring_ok += 1
+                    else:
+                        print(f"  [WARN] {_nb}: {_sc_err2}")
+                        print(f"         Run manually from the workspace if needed.")
 
         # ── Summary ────────────────────────────────────────────────
         print()
