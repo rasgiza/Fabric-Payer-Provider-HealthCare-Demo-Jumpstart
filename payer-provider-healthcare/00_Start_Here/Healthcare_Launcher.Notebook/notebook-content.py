@@ -2114,6 +2114,12 @@ token = notebookutils.credentials.getToken("pbi")
 headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 API = "https://api.fabric.microsoft.com/v1"
 
+# Self-heal core globals (survive kernel restart / out-of-order run).
+# workspace_id is set in the CONFIG cell; re-resolve it here if this cell is
+# run standalone, otherwise we fail with NameError: name 'workspace_id' ...
+if "workspace_id" not in dir() or not workspace_id:
+    workspace_id = spark.conf.get("trident.workspace.id")
+
 print(f"  Workspace: {workspace_id}")
 
 # Discover lh_gold_curated lakehouse ID
