@@ -318,6 +318,15 @@ KQL_COMMANDS = [
     ".alter table fraud_scores policy streamingingestion enable",
     ".alter table care_gap_alerts policy streamingingestion enable",
     ".alter table highcost_alerts policy streamingingestion enable",
+    # --- INGESTION BATCHING POLICY (fast queued/batch ingest) ---
+    # The simulator's direct-ingest guarantee path falls back to QUEUED (batch)
+    # ingestion when streaming ingest fails (fresh/Trial Eventhouses can hit
+    # "Failed to initialize cursor tracker for rowstore"). Queued ingestion is
+    # immune to that, but its default batching latency is 5 minutes -- too slow
+    # for the scoring notebooks' 180s wait. Lower it to 30s so batched rows land
+    # in time. Applied to rti_all_events (direct-ingest target); the update
+    # policies then route into the typed tables on ingestion.
+    ".alter table rti_all_events policy ingestionbatching '{\"MaximumBatchingTimeSpan\": \"00:00:30\", \"MaximumNumberOfItems\": 500, \"MaximumRawDataSizeMB\": 250}'",
     # --- UPDATE POLICIES (auto-route from rti_all_events → typed tables) ---
     # These server-side policies fire on every ingestion batch into rti_all_events,
     # extracting rows by _table field and appending them to the target tables.

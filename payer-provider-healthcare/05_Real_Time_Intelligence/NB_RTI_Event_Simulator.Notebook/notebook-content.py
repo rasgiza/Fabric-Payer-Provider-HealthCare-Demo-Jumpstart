@@ -253,17 +253,36 @@ if _eh_resp.status_code == 200:
 # deterministic, we ALSO ingest each batch directly into rti_all_events using
 # Kusto streaming ingestion (streamingingestion policy is enabled in setup).
 _kusto_ingest_client = None
+_kusto_queued_client = None
 if _KUSTO_QUERY_URI:
     print(f"  KQL: {_KUSTO_QUERY_URI}")
+    _ing_tok = notebookutils.credentials.getToken("kusto")
+    # Fast path: streaming ingest (near-instant when the rowstore is warm).
     try:
         from azure.kusto.data import KustoConnectionStringBuilder as _IngKCSB
         from azure.kusto.ingest import KustoStreamingIngestClient as _IngClient
-        _ing_tok = notebookutils.credentials.getToken("kusto")
         _ing_kcsb = _IngKCSB.with_aad_user_token_authentication(_KUSTO_QUERY_URI, _ing_tok)
         _kusto_ingest_client = _IngClient(_ing_kcsb)
-        print(f"    → Direct KQL streaming ingest enabled (guarantees rti_all_events data)")
+        print(f"    → Direct KQL streaming ingest enabled (fast path)")
     except Exception as _ing_err:
-        print(f"    [WARN] Direct KQL ingest unavailable — relying on Eventstream only: {_ing_err}")
+        print(f"    [WARN] Streaming ingest unavailable: {_ing_err}")
+    # Reliable fallback: queued (batch) ingest. Goes through the Data
+    # Management pipeline (ingest-<cluster> endpoint) and NEVER uses the
+    # streaming rowstore, so it is immune to the "Failed to initialize cursor
+    # tracker for rowstore" 520 that streaming ingest hits on fresh/Trial
+    # Eventhouses. Setup lowers the ingestionbatching policy to ~30s so batched
+    # data still lands inside the scoring notebooks' 180s wait window.
+    try:
+        from azure.kusto.data import KustoConnectionStringBuilder as _QKCSB
+        from azure.kusto.ingest import QueuedIngestClient as _QIngClient
+        _ingest_uri = _KUSTO_QUERY_URI.replace("https://", "https://ingest-")
+        _q_kcsb = _QKCSB.with_aad_user_token_authentication(_ingest_uri, _ing_tok)
+        _kusto_queued_client = _QIngClient(_q_kcsb)
+        print(f"    → Queued KQL ingest enabled (reliable fallback: {_ingest_uri})")
+    except Exception as _q_err:
+        print(f"    [WARN] Queued ingest unavailable: {_q_err}")
+    if not (_kusto_ingest_client or _kusto_queued_client):
+        print(f"    [WARN] No direct KQL ingest path — relying on Eventstream only")
 
 if not _es_producer:
     print("="*60)
@@ -334,10 +353,16 @@ def push_to_eventstream(df_pandas, table_name):
         return False
 
 def direct_ingest_rti_all_events(df_pandas, table_name):
-    """Guarantee data lands in rti_all_events via direct KQL streaming ingest.
-    Runs alongside the Eventstream path so the demo works even when the
-    Eventstream ProcessedIngestion (ASA) path is slow or cold on first run."""
-    if _kusto_ingest_client is None or df_pandas is None or len(df_pandas) == 0:
+    """Guarantee data lands in rti_all_events via direct KQL ingest.
+
+    Fast path = streaming ingest (near-instant). If streaming fails with a
+    transient rowstore error (common on fresh/Trial Eventhouses -- HTTP 520
+    "Failed to initialize cursor tracker for rowstore"), fall back to queued
+    (batch) ingest, which goes through the Data Management pipeline and never
+    touches the streaming rowstore. Runs alongside the Eventstream path so the
+    demo works even when Eventstream ProcessedIngestion (ASA) is slow/cold."""
+    if (_kusto_ingest_client is None and _kusto_queued_client is None) \
+            or df_pandas is None or len(df_pandas) == 0:
         return False
     try:
         import io
@@ -360,34 +385,47 @@ def direct_ingest_rti_all_events(df_pandas, table_name):
             data_format=DataFormat.JSON,
             ingestion_mapping_reference="rti_all_events_mapping",
         )
-        # Retry transient streaming-ingest failures. On a freshly-created
-        # Eventhouse the streaming rowstore can still be cold-starting, which
-        # surfaces as HTTP 520 / InternalServiceError / "Failed to initialize
-        # cursor tracker for rowstore" -- Kusto flags these @permanent:false and
-        # explicitly recommends retrying after a backoff period.
-        _last_err = None
-        for _attempt in range(6):
+
+        # ── Fast path: streaming ingest (a few quick retries only) ──
+        if _kusto_ingest_client is not None:
+            for _attempt in range(3):
+                try:
+                    _kusto_ingest_client.ingest_from_stream(
+                        io.BytesIO(_payload), ingestion_properties=_props)
+                    if _attempt > 0:
+                        print(f"  KQL streaming-ingest OK: {table_name} "
+                              f"(retry {_attempt})")
+                    return True
+                except Exception as _ie:
+                    _msg = str(_ie)
+                    _transient = (
+                        "520" in _msg or "InternalServiceError" in _msg
+                        or "cursor tracker" in _msg or "temporary error" in _msg.lower()
+                        or '"@permanent": false' in _msg
+                        or "internal service error" in _msg.lower()
+                    )
+                    if not _transient:
+                        raise
+                    if _attempt < 2:
+                        time.sleep(3 * (_attempt + 1))  # 3s, 6s
+                    # after last streaming attempt, drop to queued fallback
+
+        # ── Reliable fallback: queued (batch) ingest ──
+        # Immune to the streaming rowstore issue. Batching policy is lowered to
+        # ~30s in setup so the data lands within the scoring 180s wait window.
+        if _kusto_queued_client is not None:
             try:
-                _kusto_ingest_client.ingest_from_stream(
+                _kusto_queued_client.ingest_from_stream(
                     io.BytesIO(_payload), ingestion_properties=_props)
-                if _attempt > 0:
-                    print(f"  KQL direct-ingest OK: {table_name} -> rti_all_events "
-                          f"(succeeded on retry {_attempt})")
+                print(f"  KQL queued-ingest OK: {table_name} "
+                      f"(batch path — streaming unavailable)")
                 return True
-            except Exception as _ie:
-                _last_err = _ie
-                _msg = str(_ie)
-                _transient = (
-                    "520" in _msg or "InternalServiceError" in _msg
-                    or "cursor tracker" in _msg or "internal service error" in _msg.lower()
-                    or '"@permanent": false' in _msg or "temporary error" in _msg.lower()
-                )
-                if not _transient or _attempt == 5:
-                    raise
-                _wait = min(2 ** _attempt * 3, 45)  # 3,6,12,24,45,45s
-                print(f"  KQL direct-ingest retry {_attempt + 1}/5 for {table_name} "
-                      f"(transient rowstore cold-start) -- waiting {_wait}s...")
-                time.sleep(_wait)
+            except Exception as _qe:
+                print(f"  KQL queued-ingest ERROR: {table_name} -> rti_all_events: {_qe}")
+                return False
+
+        print(f"  KQL direct-ingest: {table_name} not landed "
+              f"(streaming failed, no queued client)")
         return False
     except Exception as _e:
         print(f"  KQL direct-ingest ERROR: {table_name} -> rti_all_events: {_e}")
