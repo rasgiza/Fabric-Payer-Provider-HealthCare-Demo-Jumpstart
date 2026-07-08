@@ -2959,6 +2959,32 @@ try:
     if not _folders_by_name:
         print("  [SKIP] No workspace folders found — nothing to organize into.")
     else:
+        # ── Only ever move items THIS jumpstart creates at runtime ──
+        # These are the post-deploy items that land loose in the
+        # workspace root. We match them by EXACT displayName (plus a
+        # couple of prefixes for the ontology's auto-generated child
+        # items) so we never touch pre-existing items in the workspace
+        # — e.g. the notebook someone used to deploy this jumpstart, or
+        # anything else already living in an existing workspace.
+        _JUMPSTART_ITEM_NAMES = {
+            "HealthcareAnalyticsDashboard",   # Direct Lake Power BI report
+            "Healthcare_RTI_Eventstream",     # Eventstream
+            "Healthcare RTI Dashboard",       # Real-Time dashboard
+            "Healthcare_Demo_Ontology_HLS",   # Ontology
+            "Healthcare_Demo_Graph",          # Graph model
+            "Healthcare_RTI_Eventhouse",      # Eventhouse
+            "Healthcare_RTI_DB",              # KQL database
+        }
+        # Ontology deploy generates child items named like
+        # 'Healthcare_Demo_Ontology_HLS_graph_<guid>' /
+        # 'Healthcare_Demo_Ontology_HLS_lh_<guid>'.
+        _JUMPSTART_NAME_PREFIXES = ("Healthcare_Demo_Ontology_HLS",)
+
+        def _is_jumpstart_item(_name):
+            if _name in _JUMPSTART_ITEM_NAMES:
+                return True
+            return any(_name.startswith(_p) for _p in _JUMPSTART_NAME_PREFIXES)
+
         # ── Which subfolder should each loose item land in? ─────────
         # Matched by item type first, then by a name hint. Anything that
         # doesn't match falls back to Start Here so it is never left loose.
@@ -2990,6 +3016,12 @@ try:
                     continue
                 # SQLEndpoint is a child of a Lakehouse — moves with its parent.
                 if _it.get("type") == "SQLEndpoint":
+                    continue
+                # SCOPE GUARD: only organize items this jumpstart created.
+                # Never move anything else that happens to be loose in the
+                # workspace root (e.g. the deploy notebook, or a user's own
+                # items when installing into an existing workspace).
+                if not _is_jumpstart_item(_it.get("displayName") or ""):
                     continue
                 _tgt_name = _target_folder_for(_it)
                 _tgt_id = _folders_by_name.get(_tgt_name)
